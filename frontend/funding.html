@@ -1,0 +1,118 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HeritageGraph | Funding</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js" defer></script>
+</head>
+<body>
+    <header>
+        <h1>Funding Management</h1>
+        <p>Track conservation funding and expenditure.</p>
+    </header>
+
+    <nav aria-label="Main navigation">
+        <a href="index.html">Dashboard</a>
+        <a href="assets.html">Assets</a>
+        <a href="conservation.html">Conservation</a>
+        <a href="funding.html" aria-current="page">Funding</a>
+        <a href="archives.html">Archives</a>
+        <a href="exhibitions.html">Exhibitions</a>
+    </nav>
+
+    <main>
+        <div id="funding-message"
+             class="message info"
+             role="status"
+             aria-live="polite"></div>
+
+        <section class="card">
+            <h2>Allocate Funding</h2>
+
+            <form id="funding-form">
+                <div class="form-grid">
+                    <div>
+                        <label for="funding-id">Funding ID</label>
+                        <input id="funding-id"
+                               name="funding_id" required>
+                    </div>
+
+                    <div>
+                        <label for="funding-project">Project ID</label>
+                        <input id="funding-project"
+                               name="project_id" required>
+                    </div>
+
+                    <div>
+                        <label for="allocated-amount">Allocated Amount</label>
+                        <input id="allocated-amount"
+                               name="allocated_amount"
+                               type="number" min="0.01"
+                               step="0.01" required>
+                    </div>
+
+                    <div>
+                        <label for="utilized-amount">Utilized Amount</label>
+                        <input id="utilized-amount"
+                               name="utilized_amount"
+                               type="number" min="0"
+                               step="0.01" value="0" required>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button type="submit">Save Funding</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>Funding Utilization Report</h2>
+
+            <div class="stats-grid">
+                <article class="card">
+                    <h3>Total Allocated</h3>
+                    <p id="funding-allocated" class="stat-value">—</p>
+                </article>
+
+                <article class="card">
+                    <h3>Total Utilized</h3>
+                    <p id="funding-utilized" class="stat-value">—</p>
+                </article>
+
+                <article class="card">
+                    <h3>Remaining Balance</h3>
+                    <p id="funding-remaining" class="stat-value">—</p>
+                </article>
+
+                <article class="card">
+                    <h3>Utilization</h3>
+                    <p id="funding-percentage" class="stat-value">—</p>
+                </article>
+            </div>
+
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Project ID</th>
+                            <th>Allocated</th>
+                            <th>Utilized</th>
+                            <th>Remaining</th>
+                            <th>Utilization</th>
+                        </tr>
+                    </thead>
+                    <tbody id="funding-table-body">
+                        <tr>
+                            <td colspan="5">Loading report...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

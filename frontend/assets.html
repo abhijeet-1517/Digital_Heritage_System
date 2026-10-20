@@ -1,0 +1,137 @@
+<!-- 
+name, location, period, preservation_status, and description are
+provisional property names. Keep them only if Members 1 and 2 confirm them. 
+The status options must also match the permitted values in the backend. 
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HeritageGraph | Assets</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js" defer></script>
+</head>
+<body>
+    <header>
+        <h1>Heritage Assets</h1>
+        <p>Register and manage cultural heritage assets.</p>
+    </header>
+
+    <nav aria-label="Main navigation">
+        <a href="index.html">Dashboard</a>
+        <a href="assets.html" aria-current="page">Assets</a>
+        <a href="conservation.html">Conservation</a>
+        <a href="funding.html">Funding</a>
+        <a href="archives.html">Archives</a>
+        <a href="exhibitions.html">Exhibitions</a>
+    </nav>
+
+    <main>
+        <div id="assets-message"
+             class="message info"
+             role="status"
+             aria-live="polite"></div>
+
+        <section class="card">
+            <h2>Add Heritage Asset</h2>
+
+            <form id="asset-form">
+                <div class="form-grid">
+                    <div>
+                        <label for="asset_id">Asset ID</label>
+                        <input id="asset_id" name="asset_id"
+                               required>
+                    </div>
+
+                    <div>
+                        <label for="asset-name">Asset Name</label>
+                        <input id="asset-name" name="name"
+                               required>
+                    </div>
+
+                    <div>
+                        <label for="asset-location">Location</label>
+                        <input id="asset-location" name="location"
+                               required>
+                    </div>
+
+                    <div>
+                        <label for="asset-period">Historical Period</label>
+                        <input id="asset-period" name="period">
+                    </div>
+
+                    <div>
+                        <label for="asset-status">Preservation Status</label>
+                        <select id="asset-status"
+                                name="preservation_status" required>
+                            <option value="">Select status</option>
+                            <option value="Good">Good</option>
+                            <option value="Needs Attention">Needs Attention</option>
+                            <option value="Critical">Critical</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="margin-top: 16px;">
+                    <label for="asset-description">Description</label>
+                    <textarea id="asset-description"
+                              name="description" rows="3"></textarea>
+                </div>
+
+                <div class="actions">
+                    <button type="submit">Add Asset</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>Search Assets</h2>
+
+            <form id="asset-search-form">
+                <div class="form-grid">
+                    <div>
+                        <label for="asset-search">Asset Name or ID</label>
+                        <input id="asset-search"
+                               placeholder="Enter asset name or ID">
+                    </div>
+                </div>
+                <div class="actions">
+                    <button type="submit">Search</button>
+                    <button type="button" id="clear-asset-search">
+                        Show All
+                    </button>
+                </div>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>Asset Records</h2>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Asset ID</th>
+                            <th>Name</th>
+                            <th>Location</th>
+                            <th>Period</th>
+                            <th>Preservation Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assets-table-body">
+                        <tr>
+                            <td colspan="6">Loading assets...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="card" id="asset-details" hidden>
+            <h2>Asset Details</h2>
+            <div id="asset-details-content"></div>
+        </section>
+    </main>
+</body>
+</html>

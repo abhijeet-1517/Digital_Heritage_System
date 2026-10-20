@@ -1,0 +1,117 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HeritageGraph | Conservation</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js" defer></script>
+</head>
+<body>
+    <header>
+        <h1>Conservation Management</h1>
+        <p>Manage projects that protect heritage assets.</p>
+    </header>
+
+    <nav aria-label="Main navigation">
+        <a href="index.html">Dashboard</a>
+        <a href="assets.html">Assets</a>
+        <a href="conservation.html" aria-current="page">Conservation</a>
+        <a href="funding.html">Funding</a>
+        <a href="archives.html">Archives</a>
+        <a href="exhibitions.html">Exhibitions</a>
+    </nav>
+
+    <main>
+        <div id="conservation-message"
+             class="message info"
+             role="status"
+             aria-live="polite"></div>
+
+        <section class="card">
+            <h2>Create Conservation Project</h2>
+
+            <form id="project-form">
+                <div class="form-grid">
+                    <div>
+                        <label for="project_id">Project ID</label>
+                        <input id="project_id" name="project_id" required>
+                    </div>
+
+                    <div>
+                        <label for="project-name">Project Name</label>
+                        <input id="project-name"
+                               name="project_name" required>
+                    </div>
+
+                    <div>
+                        <label for="project-asset">Heritage Asset</label>
+                        <select id="project-asset"
+                                name="asset_id" required>
+                            <option value="">Loading assets...</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="project-budget">Budget</label>
+                        <input id="project-budget"
+                               name="budget" type="number"
+                               min="0" step="0.01" required>
+                    </div>
+
+                    <div>
+                        <label for="project-status">Project Status</label>
+                        <select id="project-status"
+                                name="status" required>
+                            <option value="">Select status</option>
+                            <option value="Planned">Planned</option>
+                            <option value="Active">Active</option>
+                            <option value="Completed">Completed</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button type="submit">Create Project</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>Conservation Projects</h2>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Project ID</th>
+                            <th>Project Name</th>
+                            <th>Asset ID</th>
+                            <th>Budget</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="projects-table-body">
+                        <tr>
+                            <td colspan="6">Loading projects...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Restoration History</h2>
+            <label for="restoration-asset">Select Heritage Asset</label>
+            <select id="restoration-asset">
+                <option value="">Select an asset</option>
+            </select>
+
+            <div id="restoration-history">
+                Select an asset to view its restoration history.
+            </div>
+        </section>
+    </main>
+</body>
+</html>

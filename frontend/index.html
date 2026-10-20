@@ -1,0 +1,94 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HeritageGraph | Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js" defer></script>
+</head>
+<body>
+    <header>
+        <h1>HeritageGraph</h1>
+        <p>National Cultural Heritage Organization</p>
+    </header>
+
+    <nav aria-label="Main navigation">
+        <a href="index.html" aria-current="page">Dashboard</a>
+        <a href="assets.html">Assets</a>
+        <a href="conservation.html">Conservation</a>
+        <a href="funding.html">Funding</a>
+        <a href="archives.html">Archives</a>
+        <a href="exhibitions.html">Exhibitions</a>
+    </nav>
+
+    <main>
+        <h2>Heritage Overview</h2>
+        <p>Monitor heritage assets, conservation activity,
+           funding, archives, and exhibitions.</p>
+
+        <div id="dashboard-message"
+             class="message info"
+             role="status"
+             aria-live="polite"></div>
+
+        <section class="stats-grid" aria-label="Dashboard statistics">
+            <article class="card">
+                <h3>Total Heritage Assets</h3>
+                <p id="total-assets" class="stat-value">—</p>
+            </article>
+
+            <article class="card">
+                <h3>Active Conservation Projects</h3>
+                <p id="active-projects" class="stat-value">—</p>
+            </article>
+
+            <article class="card">
+                <h3>Digital Archives</h3>
+                <p id="total-archives" class="stat-value">—</p>
+            </article>
+
+            <article class="card">
+                <h3>Current Exhibitions</h3>
+                <p id="current-exhibitions" class="stat-value">—</p>
+            </article>
+
+            <article class="card">
+                <h3>Assets Requiring Attention</h3>
+                <p id="assets-needing-attention" class="stat-value">—</p>
+            </article>
+        </section>
+
+        <section class="card">
+            <h2>Quick Actions</h2>
+            <div class="actions">
+                <button type="button"
+                        onclick="location.href='assets.html'">
+                    Manage Assets
+                </button>
+
+                <button type="button"
+                        onclick="location.href='conservation.html'">
+                    View Conservation
+                </button>
+
+                <button type="button"
+                        onclick="location.href='funding.html'">
+                    View Funding
+                </button>
+
+                <button type="button"
+                        onclick="location.href='archives.html'">
+                    Browse Archives
+                </button>
+
+                <button type="button"
+                        onclick="location.href='exhibitions.html'">
+                    Manage Exhibitions
+                </button>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

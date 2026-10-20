@@ -1,0 +1,153 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HeritageGraph | Exhibitions</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js" defer></script>
+</head>
+<body>
+    <header>
+        <h1>Exhibitions and Visitor Feedback</h1>
+        <p>Manage exhibitions and collect visitor ratings.</p>
+    </header>
+
+    <nav aria-label="Main navigation">
+        <a href="index.html">Dashboard</a>
+        <a href="assets.html">Assets</a>
+        <a href="conservation.html">Conservation</a>
+        <a href="funding.html">Funding</a>
+        <a href="archives.html">Archives</a>
+        <a href="exhibitions.html" aria-current="page">Exhibitions</a>
+    </nav>
+
+    <main>
+        <div id="exhibitions-message"
+             class="message info"
+             role="status"
+             aria-live="polite"></div>
+
+        <section class="card">
+            <h2>Create Exhibition</h2>
+
+            <form id="exhibition-form">
+                <div class="form-grid">
+                    <div>
+                        <label for="exhibition_id">Exhibition ID</label>
+                        <input id="exhibition_id"
+                               name="exhibition_id" required>
+                    </div>
+
+                    <div>
+                        <label for="exhibition-name">Exhibition Name</label>
+                        <input id="exhibition-name"
+                               name="name" required>
+                    </div>
+
+                    <div>
+                        <label for="exhibition-start">Start Date</label>
+                        <input id="exhibition-start"
+                               name="start_date" type="date" required>
+                    </div>
+
+                    <div>
+                        <label for="exhibition-end">End Date</label>
+                        <input id="exhibition-end"
+                               name="end_date" type="date" required>
+                    </div>
+
+                    <div>
+                        <label for="exhibition-status">Status</label>
+                        <select id="exhibition-status"
+                                name="status" required>
+                            <option value="">Select status</option>
+                            <option value="Planned">Planned</option>
+                            <option value="Current">Current</option>
+                            <option value="Completed">Completed</option>
+                        </select>
+                    </div>
+                </div>
+
+                <h3>Associated Heritage Assets</h3>
+                <label for="exhibition-asset">Select Asset</label>
+                <select id="exhibition-asset" name="asset_id" required>
+                    <option value="">Loading assets...</option>
+                </select>
+
+                <div class="actions">
+                    <button type="submit">Create Exhibition</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>Submit Visitor Feedback</h2>
+
+            <form id="feedback-form">
+                <div class="form-grid">
+                    <div>
+                        <label for="feedback-exhibition">
+                            Exhibition ID
+                        </label>
+                        <input id="feedback-exhibition"
+                               name="exhibition_id" required>
+                    </div>
+
+                    <div>
+                        <label for="feedback-rating">Rating (1–5)</label>
+                        <select id="feedback-rating"
+                                name="rating" required>
+                            <option value="">Select rating</option>
+                            <option value="1">1 — Poor</option>
+                            <option value="2">2 — Fair</option>
+                            <option value="3">3 — Good</option>
+                            <option value="4">4 — Very Good</option>
+                            <option value="5">5 — Excellent</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="margin-top: 16px;">
+                    <label for="feedback-comment">Comment</label>
+                    <textarea id="feedback-comment"
+                              name="comment" rows="3"></textarea>
+                </div>
+
+                <div class="actions">
+                    <button type="submit">Submit Feedback</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>Exhibition Records</h2>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Exhibition ID</th>
+                            <th>Name</th>
+                            <th>Start Date</th>
+                            <th>End Date</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="exhibitions-table-body">
+                        <tr>
+                            <td colspan="5">Loading exhibitions...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Exhibition Ratings</h2>
+            <p>Average rating and feedback count will appear here.</p>
+            <div id="exhibition-ratings"></div>
+        </section>
+    </main>
+</body>
+</html>

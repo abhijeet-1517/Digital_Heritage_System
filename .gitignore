@@ -1,3 +1,8 @@
+# Environment & Secrets
+.env
+*.env
+.env.local
+
 # Python bytecode & cache
 __pycache__/
 *.py[cod]

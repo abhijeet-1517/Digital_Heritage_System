@@ -1,10 +1,13 @@
 import os
-from typing import List, Optional
+from contextlib import asynccontextmanager
+from typing import List, Optional, Union
 from fastapi import FastAPI, HTTPException, Depends, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
+from backend.config import settings
+from backend.database import init_neo4j_driver, close_neo4j_driver, get_neo4j_driver
 from backend.models import (
     AssetCreate,
     AssetResponse,
@@ -22,12 +25,27 @@ from backend.models import (
     ExhibitionRatingSummary,
     DashboardStats,
 )
-from backend.store import InMemoryHeritageStore, get_store
+from backend.store import InMemoryHeritageStore, store as in_memory_store
+from backend.neo4j_store import Neo4jHeritageStore
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application startup and shutdown events."""
+    # Startup
+    if settings.DATABASE_MODE == "neo4j":
+        # Raises RuntimeError if connection fails, preventing silent fallback
+        init_neo4j_driver()
+    yield
+    # Shutdown
+    close_neo4j_driver()
+
 
 app = FastAPI(
     title="National Cultural Heritage Management System API",
     description="Backend API supporting the HeritageGraph dashboard, conservation, funding, archives, and exhibitions.",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Enable CORS for development
@@ -40,17 +58,33 @@ app.add_middleware(
 )
 
 
+def get_store() -> Union[Neo4jHeritageStore, InMemoryHeritageStore]:
+    """
+    Dependency injection for data repository layer.
+    Strictly checks DATABASE_MODE:
+    - If 'neo4j', connects to Neo4j Aura; fails if driver is not connected.
+    - If 'mock', uses in-memory store.
+    """
+    if settings.DATABASE_MODE == "neo4j":
+        driver = get_neo4j_driver()
+        if not driver:
+            # Attempt to re-initialize or raise error
+            driver = init_neo4j_driver()
+        return Neo4jHeritageStore(driver=driver, database=settings.NEO4J_DATABASE)
+    return in_memory_store
+
+
 # -----------------------------------------------------------------------------
 # Health & Dashboard Statistics
 # -----------------------------------------------------------------------------
 @app.get("/api/health", tags=["System"])
-def get_health(store: InMemoryHeritageStore = Depends(get_store)):
-    """Health check endpoint confirming backend service status."""
+def get_health(store=Depends(get_store)):
+    """Health check endpoint confirming backend service and database status."""
     return store.get_health()
 
 
 @app.get("/api/dashboard/stats", response_model=DashboardStats, tags=["Dashboard"])
-def get_dashboard_stats(store: InMemoryHeritageStore = Depends(get_store)):
+def get_dashboard_stats(store=Depends(get_store)):
     """Retrieve summary counts for the dashboard overview cards."""
     return store.get_dashboard_stats()
 
@@ -61,14 +95,14 @@ def get_dashboard_stats(store: InMemoryHeritageStore = Depends(get_store)):
 @app.get("/api/assets", response_model=List[AssetResponse], tags=["Assets"])
 def list_assets(
     search: Optional[str] = Query(None, description="Search term for name, ID, or location"),
-    store: InMemoryHeritageStore = Depends(get_store),
+    store=Depends(get_store),
 ):
     """List all registered heritage assets, with optional keyword search."""
     return store.get_assets(search=search)
 
 
 @app.get("/api/assets/{asset_id}", response_model=AssetResponse, tags=["Assets"])
-def get_asset_detail(asset_id: str, store: InMemoryHeritageStore = Depends(get_store)):
+def get_asset_detail(asset_id: str, store=Depends(get_store)):
     """Fetch details for a single heritage asset by ID."""
     asset = store.get_asset(asset_id)
     if not asset:
@@ -87,7 +121,7 @@ def get_asset_detail(asset_id: str, store: InMemoryHeritageStore = Depends(get_s
 )
 def create_asset(
     asset_data: AssetCreate,
-    store: InMemoryHeritageStore = Depends(get_store),
+    store=Depends(get_store),
 ):
     """Register a new cultural heritage asset. Validates against duplicate IDs."""
     try:
@@ -100,7 +134,7 @@ def create_asset(
 def update_asset_preservation_status(
     asset_id: str,
     update_data: AssetStatusUpdate,
-    store: InMemoryHeritageStore = Depends(get_store),
+    store=Depends(get_store),
 ):
     """Update the preservation status of an existing heritage asset."""
     try:
@@ -110,13 +144,16 @@ def update_asset_preservation_status(
 
 
 @app.delete("/api/assets/{asset_id}", tags=["Assets"])
-def delete_asset(asset_id: str, store: InMemoryHeritageStore = Depends(get_store)):
+def delete_asset(asset_id: str, store=Depends(get_store)):
     """Delete a heritage asset by ID."""
     try:
         deleted = store.delete_asset(asset_id)
         return {"message": f"Asset '{asset_id}' deleted successfully.", "asset": deleted}
     except KeyError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
 
 
 # -----------------------------------------------------------------------------
@@ -127,7 +164,7 @@ def delete_asset(asset_id: str, store: InMemoryHeritageStore = Depends(get_store
     response_model=List[ConservationProjectResponse],
     tags=["Conservation"],
 )
-def list_conservation_projects(store: InMemoryHeritageStore = Depends(get_store)):
+def list_conservation_projects(store=Depends(get_store)):
     """List all conservation and restoration projects."""
     return store.get_projects()
 
@@ -140,7 +177,7 @@ def list_conservation_projects(store: InMemoryHeritageStore = Depends(get_store)
 )
 def create_conservation_project(
     project_data: ConservationProjectCreate,
-    store: InMemoryHeritageStore = Depends(get_store),
+    store=Depends(get_store),
 ):
     """Create a new conservation project. Validates project ID uniqueness and associated asset existence."""
     try:
@@ -156,7 +193,7 @@ def create_conservation_project(
 )
 def get_restoration_history_by_asset(
     asset_id: str,
-    store: InMemoryHeritageStore = Depends(get_store),
+    store=Depends(get_store),
 ):
     """Fetch conservation/restoration history for a specific heritage asset."""
     try:
@@ -165,11 +202,24 @@ def get_restoration_history_by_asset(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
+@app.delete("/api/conservation/projects/{project_id}", tags=["Conservation"])
+def delete_conservation_project(project_id: str, store=Depends(get_store)):
+    """Delete a conservation project by ID."""
+    try:
+        deleted = store.delete_project(project_id)
+        return {"message": f"Conservation project '{project_id}' deleted successfully.", "project": deleted}
+    except KeyError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+
 # -----------------------------------------------------------------------------
 # Funding Management
 # -----------------------------------------------------------------------------
 @app.get("/api/funding", response_model=FundingReportResponse, tags=["Funding"])
-def get_funding_report(store: InMemoryHeritageStore = Depends(get_store)):
+def get_funding_report(store=Depends(get_store)):
     """Retrieve funding allocations, expenditures, remaining balances, and calculated summary metrics."""
     return store.get_funding_report()
 
@@ -181,7 +231,7 @@ def get_funding_report(store: InMemoryHeritageStore = Depends(get_store)):
 )
 def create_funding_allocation(
     funding_data: FundingCreate,
-    store: InMemoryHeritageStore = Depends(get_store),
+    store=Depends(get_store),
 ):
     """Allocate or record project funding. Validates funding ID uniqueness and associated project existence."""
     try:
@@ -191,13 +241,24 @@ def create_funding_allocation(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
+@app.delete("/api/funding/{funding_id}", tags=["Funding"])
+def delete_funding_record(funding_id: str, store=Depends(get_store)):
+    """Delete a funding record by ID."""
+    try:
+        deleted = store.delete_funding(funding_id)
+        return {"message": f"Funding record '{funding_id}' deleted successfully.", "funding": deleted}
+    except KeyError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+
 # -----------------------------------------------------------------------------
 # Digital Archives
 # -----------------------------------------------------------------------------
 @app.get("/api/archives", response_model=List[ArchiveResponse], tags=["Archives"])
 def list_archives(
     query: Optional[str] = Query(None, description="Search term for title, ID, or asset"),
-    store: InMemoryHeritageStore = Depends(get_store),
+    store=Depends(get_store),
 ):
     """List all registered digital archive records with optional search filter."""
     return store.get_archives(query=query)
@@ -211,13 +272,24 @@ def list_archives(
 )
 def register_archive_document(
     archive_data: ArchiveCreate,
-    store: InMemoryHeritageStore = Depends(get_store),
+    store=Depends(get_store),
 ):
     """Register a new digital archive record. Validates archive ID and associated asset existence."""
     try:
         return store.add_archive(archive_data)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.delete("/api/archives/{archive_id}", tags=["Archives"])
+def delete_archive_document(archive_id: str, store=Depends(get_store)):
+    """Delete a digital archive record by ID."""
+    try:
+        deleted = store.delete_archive(archive_id)
+        return {"message": f"Archive document '{archive_id}' deleted successfully.", "archive": deleted}
+    except KeyError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
 
 
 # -----------------------------------------------------------------------------
@@ -228,7 +300,7 @@ def register_archive_document(
     response_model=List[ExhibitionResponse],
     tags=["Exhibitions"],
 )
-def list_exhibitions(store: InMemoryHeritageStore = Depends(get_store)):
+def list_exhibitions(store=Depends(get_store)):
     """List all scheduled, current, and past exhibitions."""
     return store.get_exhibitions()
 
@@ -241,7 +313,7 @@ def list_exhibitions(store: InMemoryHeritageStore = Depends(get_store)):
 )
 def create_exhibition(
     exhibition_data: ExhibitionCreate,
-    store: InMemoryHeritageStore = Depends(get_store),
+    store=Depends(get_store),
 ):
     """Create a new exhibition. Validates exhibition ID and associated asset existence."""
     try:
@@ -258,7 +330,7 @@ def create_exhibition(
 )
 def submit_visitor_feedback(
     feedback_data: FeedbackCreate,
-    store: InMemoryHeritageStore = Depends(get_store),
+    store=Depends(get_store),
 ):
     """Submit visitor rating (1-5) and comments for an exhibition."""
     try:
@@ -272,9 +344,20 @@ def submit_visitor_feedback(
     response_model=List[ExhibitionRatingSummary],
     tags=["Exhibitions"],
 )
-def get_exhibition_ratings_summary(store: InMemoryHeritageStore = Depends(get_store)):
+def get_exhibition_ratings_summary(store=Depends(get_store)):
     """Retrieve calculated average ratings, feedback counts, and comments for all exhibitions."""
     return store.get_exhibition_ratings()
+
+
+@app.delete("/api/exhibitions/{exhibition_id}", tags=["Exhibitions"])
+def delete_exhibition_record(exhibition_id: str, store=Depends(get_store)):
+    """Delete an exhibition by ID."""
+    try:
+        deleted = store.delete_exhibition(exhibition_id)
+        return {"message": f"Exhibition '{exhibition_id}' deleted successfully.", "exhibition": deleted}
+    except KeyError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
 
 
 # -----------------------------------------------------------------------------
@@ -310,4 +393,3 @@ if os.path.exists(frontend_path):
 
     # Mount static assets (CSS, JS, images, and HTML files) at /
     app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
-

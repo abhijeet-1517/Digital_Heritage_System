@@ -121,6 +121,9 @@ function displayAssets(assets) {
                 <button type="button" data-edit-asset="${escapeHTML(asset.asset_id)}">
                     Update Status
                 </button>
+                <button type="button" class="button-danger" data-delete-asset="${escapeHTML(asset.asset_id)}">
+                    Delete
+                </button>
             </td>
         </tr>
     `).join("");
@@ -266,6 +269,40 @@ function initializeAssetsPage() {
                     showMessage("assets-message", error.message, "error");
                 }
             }
+
+            const deleteButton = event.target.closest("[data-delete-asset]");
+            if (deleteButton) {
+                const assetId = deleteButton.dataset.deleteAsset;
+                const asset = cachedAssets.find(item => String(item.asset_id) === assetId);
+                const assetName = asset ? asset.name : assetId;
+
+                const confirmed = window.confirm(
+                    `Are you sure you want to delete heritage asset "${assetName}" (${assetId})?\n\nThis will safely remove the asset node from the HeritageGraph database if there are no active dependencies.`
+                );
+                if (!confirmed) return;
+
+                try {
+                    deleteButton.disabled = true;
+                    await apiRequest(`/assets/${encodeURIComponent(assetId)}`, {
+                        method: "DELETE"
+                    });
+                    showMessage("assets-message", `Heritage asset "${assetName}" (${assetId}) was deleted successfully.`, "success");
+                    
+                    // Hide details panel if showing the deleted asset
+                    const details = document.getElementById("asset-details");
+                    if (details && !details.hidden) {
+                        const content = document.getElementById("asset-details-content");
+                        if (content && content.textContent.includes(assetId)) {
+                            details.hidden = true;
+                        }
+                    }
+
+                    await loadAssets();
+                } catch (error) {
+                    showMessage("assets-message", error.message || "Failed to delete asset.", "error");
+                    deleteButton.disabled = false;
+                }
+            }
         });
     }
 
@@ -331,6 +368,9 @@ async function loadConservationProjects() {
                 <td>
                     <button type="button" data-view-history="${escapeHTML(p.asset_id)}">
                         History
+                    </button>
+                    <button type="button" class="button-danger" data-delete-project="${escapeHTML(p.project_id)}" data-project-name="${escapeHTML(p.project_name)}">
+                        Delete
                     </button>
                 </td>
             </tr>
@@ -429,7 +469,7 @@ function initializeConservationPage() {
 
     const projectsTable = document.getElementById("projects-table-body");
     if (projectsTable) {
-        projectsTable.addEventListener("click", event => {
+        projectsTable.addEventListener("click", async event => {
             const btn = event.target.closest("[data-view-history]");
             if (btn) {
                 const assetId = btn.dataset.viewHistory;
@@ -438,6 +478,35 @@ function initializeConservationPage() {
                     select.value = assetId;
                     loadRestorationHistory(assetId);
                     select.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                }
+            }
+
+            const deleteBtn = event.target.closest("[data-delete-project]");
+            if (deleteBtn) {
+                const projectId = deleteBtn.dataset.deleteProject;
+                const projectName = deleteBtn.dataset.projectName || projectId;
+
+                const confirmed = window.confirm(
+                    `Are you sure you want to delete conservation project "${projectName}" (${projectId})?\n\nThis will safely remove the project node from HeritageGraph.`
+                );
+                if (!confirmed) return;
+
+                try {
+                    deleteBtn.disabled = true;
+                    await apiRequest(`/conservation/projects/${encodeURIComponent(projectId)}`, {
+                        method: "DELETE"
+                    });
+                    showMessage("conservation-message", `Conservation project "${projectName}" (${projectId}) deleted successfully.`, "success");
+                    await loadConservationProjects();
+
+                    // Refresh history if active asset selection matches
+                    const currentAsset = document.getElementById("restoration-asset")?.value;
+                    if (currentAsset) {
+                        loadRestorationHistory(currentAsset);
+                    }
+                } catch (error) {
+                    showMessage("conservation-message", error.message || "Failed to delete project.", "error");
+                    deleteBtn.disabled = false;
                 }
             }
         });
@@ -485,12 +554,17 @@ async function loadFundingReport() {
                 <td>
                     <span class="status">${escapeHTML(r.percentage)}</span>
                 </td>
+                <td>
+                    <button type="button" class="button-danger" data-delete-funding="${escapeHTML(r.funding_id)}" data-project-id="${escapeHTML(r.project_id)}">
+                        Delete
+                    </button>
+                </td>
             </tr>
         `).join("");
     } catch (error) {
         showMessage("funding-message", error.message || "Unable to load funding report.", "error");
         if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="5">Unable to load report.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6">Unable to load report.</td></tr>';
         }
     }
 }
@@ -523,6 +597,34 @@ function initializeFundingPage() {
     const form = document.getElementById("funding-form");
     if (form) {
         form.addEventListener("submit", saveFunding);
+    }
+
+    const fundingTable = document.getElementById("funding-table-body");
+    if (fundingTable) {
+        fundingTable.addEventListener("click", async event => {
+            const deleteBtn = event.target.closest("[data-delete-funding]");
+            if (deleteBtn) {
+                const fundingId = deleteBtn.dataset.deleteFunding;
+                const projectId = deleteBtn.dataset.projectId || "";
+
+                const confirmed = window.confirm(
+                    `Are you sure you want to delete funding record "${fundingId}" for project "${projectId}"?\n\nThis will safely remove the funding allocation node and update utilization totals.`
+                );
+                if (!confirmed) return;
+
+                try {
+                    deleteBtn.disabled = true;
+                    await apiRequest(`/funding/${encodeURIComponent(fundingId)}`, {
+                        method: "DELETE"
+                    });
+                    showMessage("funding-message", `Funding record "${fundingId}" deleted successfully.`, "success");
+                    await loadFundingReport();
+                } catch (error) {
+                    showMessage("funding-message", error.message || "Failed to delete funding record.", "error");
+                    deleteBtn.disabled = false;
+                }
+            }
+        });
     }
 }
 
@@ -559,12 +661,17 @@ async function loadArchives(searchTerm = "") {
                 <td>
                     <span class="status">${escapeHTML(a.access_level)}</span>
                 </td>
+                <td>
+                    <button type="button" class="button-danger" data-delete-archive="${escapeHTML(a.archive_id)}" data-archive-title="${escapeHTML(a.title)}">
+                        Delete
+                    </button>
+                </td>
             </tr>
         `).join("");
     } catch (error) {
         showMessage("archives-message", error.message || "Unable to load archive records.", "error");
         if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="5">Unable to load archives.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6">Unable to load archives.</td></tr>';
         }
     }
 }
@@ -623,6 +730,35 @@ function initializeArchivesPage() {
             }
         });
     }
+
+    const archivesTable = document.getElementById("archives-table-body");
+    if (archivesTable) {
+        archivesTable.addEventListener("click", async event => {
+            const deleteBtn = event.target.closest("[data-delete-archive]");
+            if (deleteBtn) {
+                const archiveId = deleteBtn.dataset.deleteArchive;
+                const archiveTitle = deleteBtn.dataset.archiveTitle || archiveId;
+
+                const confirmed = window.confirm(
+                    `Are you sure you want to delete digital archive "${archiveTitle}" (${archiveId})?\n\nThis will safely remove the archive document node from HeritageGraph.`
+                );
+                if (!confirmed) return;
+
+                try {
+                    deleteBtn.disabled = true;
+                    await apiRequest(`/archives/${encodeURIComponent(archiveId)}`, {
+                        method: "DELETE"
+                    });
+                    showMessage("archives-message", `Digital archive "${archiveTitle}" (${archiveId}) deleted successfully.`, "success");
+                    const currentSearch = document.getElementById("archive-search")?.value || "";
+                    await loadArchives(currentSearch);
+                } catch (error) {
+                    showMessage("archives-message", error.message || "Failed to delete archive document.", "error");
+                    deleteBtn.disabled = false;
+                }
+            }
+        });
+    }
 }
 
 
@@ -651,12 +787,17 @@ async function loadExhibitions() {
                 <td>${escapeHTML(e.start_date)}</td>
                 <td>${escapeHTML(e.end_date)}</td>
                 <td><span class="status">${escapeHTML(e.status)}</span></td>
+                <td>
+                    <button type="button" class="button-danger" data-delete-exhibition="${escapeHTML(e.exhibition_id)}" data-exhibition-name="${escapeHTML(e.name)}">
+                        Delete
+                    </button>
+                </td>
             </tr>
         `).join("");
     } catch (error) {
         showMessage("exhibitions-message", error.message || "Unable to load exhibitions.", "error");
         if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="5">Unable to load exhibitions.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6">Unable to load exhibitions.</td></tr>';
         }
     }
 }
@@ -750,6 +891,35 @@ function initializeExhibitionsPage() {
     const feedbackForm = document.getElementById("feedback-form");
     if (feedbackForm) {
         feedbackForm.addEventListener("submit", submitFeedback);
+    }
+
+    const exhibitionsTable = document.getElementById("exhibitions-table-body");
+    if (exhibitionsTable) {
+        exhibitionsTable.addEventListener("click", async event => {
+            const deleteBtn = event.target.closest("[data-delete-exhibition]");
+            if (deleteBtn) {
+                const exhibitionId = deleteBtn.dataset.deleteExhibition;
+                const exhibitionName = deleteBtn.dataset.exhibitionName || exhibitionId;
+
+                const confirmed = window.confirm(
+                    `Are you sure you want to delete exhibition "${exhibitionName}" (${exhibitionId})?\n\nThis will safely remove the exhibition and its visitor reviews from HeritageGraph.`
+                );
+                if (!confirmed) return;
+
+                try {
+                    deleteBtn.disabled = true;
+                    await apiRequest(`/exhibitions/${encodeURIComponent(exhibitionId)}`, {
+                        method: "DELETE"
+                    });
+                    showMessage("exhibitions-message", `Exhibition "${exhibitionName}" (${exhibitionId}) deleted successfully.`, "success");
+                    await loadExhibitions();
+                    await loadExhibitionRatings();
+                } catch (error) {
+                    showMessage("exhibitions-message", error.message || "Failed to delete exhibition.", "error");
+                    deleteBtn.disabled = false;
+                }
+            }
+        });
     }
 }
 

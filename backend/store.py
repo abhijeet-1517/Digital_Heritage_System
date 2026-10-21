@@ -496,8 +496,33 @@ class InMemoryHeritageStore:
             )
         return results
 
+    def delete_project(self, project_id: str) -> dict:
+        if project_id not in self.projects:
+            raise KeyError(f"Project with ID '{project_id}' does not exist.")
+        # Rule: Prevent deletion if project has linked funding records
+        linked_funding = [f["funding_id"] for f in self.funding.values() if f.get("project_id") == project_id]
+        if linked_funding:
+            raise ValueError(f"Cannot delete project '{project_id}': active funding records exist ({', '.join(linked_funding)}). Please remove or reassign funding first.")
+        return self.projects.pop(project_id)
 
-# Global singleton instance of the store
+    def delete_funding(self, funding_id: str) -> dict:
+        if funding_id not in self.funding:
+            raise KeyError(f"Funding record with ID '{funding_id}' does not exist.")
+        return self.funding.pop(funding_id)
+
+    def delete_archive(self, archive_id: str) -> dict:
+        if archive_id not in self.archives:
+            raise KeyError(f"Archive with ID '{archive_id}' does not exist.")
+        return self.archives.pop(archive_id)
+
+    def delete_exhibition(self, exhibition_id: str) -> dict:
+        if exhibition_id not in self.exhibitions:
+            raise KeyError(f"Exhibition with ID '{exhibition_id}' does not exist.")
+        deleted = self.exhibitions.pop(exhibition_id)
+        # Safely remove associated visitor feedback given for this exhibition
+        self.feedback = [f for f in self.feedback if f.get("exhibition_id") != exhibition_id]
+        return deleted
+
 store = InMemoryHeritageStore()
 
 

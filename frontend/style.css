@@ -139,6 +139,14 @@ button:disabled {
     cursor: not-allowed;
 }
 
+button.button-danger {
+    background: var(--danger);
+}
+
+button.button-danger:hover {
+    background: #911c13;
+}
+
 .actions {
     display: flex;
     flex-wrap: wrap;

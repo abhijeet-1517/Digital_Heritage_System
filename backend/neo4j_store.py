@@ -666,14 +666,15 @@ class Neo4jHeritageStore:
             start_date=node.get("start_date") or "2024-01-01",
             end_date=node.get("end_date") or "2024-12-31",
             status=node.get("status") or "Current",
-            asset_id=node.get("asset_id") or target_asset_id or "",
+            asset_id=node.get("asset_id") or target_asset_id or "N/A",
         )
 
     def get_exhibitions(self) -> List[ExhibitionResponse]:
         cypher = """
         MATCH (e:Exhibition)
         OPTIONAL MATCH (a:HeritageAsset)-[:FEATURED_IN]->(e)
-        RETURN e, a.asset_id AS target_asset_id
+        WITH e, collect(DISTINCT a.asset_id) AS asset_ids
+        RETURN e, CASE WHEN size(asset_ids) > 0 THEN asset_ids[0] ELSE NULL END AS target_asset_id
         ORDER BY e.exhibition_id ASC
         """
         with self._get_session() as session:

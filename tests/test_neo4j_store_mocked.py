@@ -220,3 +220,101 @@ def test_neo4j_store_delete_exhibition_success(mock_driver):
     res = store.delete_exhibition("ex999")
     assert res["exhibition_id"] == "ex999"
 
+
+def test_neo4j_store_get_exhibitions_no_duplicate_rows_with_multiple_assets(mock_driver):
+    """
+    Regression test: One exhibition (ex001) connected through multiple FEATURED_IN
+    relationships to heritage assets (h006-h010) and feedback records.
+    Verifies that get_exhibitions returns each unique exhibition exactly once,
+    and distinct exhibitions (e.g. ex001 and exhibition001) remain separate.
+    """
+    driver, session = mock_driver
+
+    ex001_node = {
+        "exhibition_id": "ex001",
+        "name": "Indian Heritage Exhibition",
+        "start_date": "2026-08-01",
+        "end_date": "2026-12-31",
+        "status": "Current",
+        "asset_id": "h001",
+    }
+    exhibition001_node = {
+        "exhibition_id": "exhibition001",
+        "name": "Chola Bronzes Special",
+        "start_date": "2026-09-01",
+        "end_date": "2026-11-30",
+        "status": "Planned",
+        "asset_id": "h002",
+    }
+    ex003_node = {
+        "exhibition_id": "ex003",
+        "name": "Temple Architecture Overview",
+        "start_date": "2026-10-01",
+        "end_date": "2026-10-15",
+        "status": "Completed",
+    }
+
+    # Neo4j query with WITH e, collect(DISTINCT a.asset_id) AS asset_ids produces 1 record per exhibition node
+    cypher_results = [
+        {"e": ex001_node, "target_asset_id": "h006"},
+        {"e": exhibition001_node, "target_asset_id": "h002"},
+        {"e": ex003_node, "target_asset_id": None},
+    ]
+
+    session.run.return_value = DummyResult(cypher_results)
+
+    store = Neo4jHeritageStore(driver=driver)
+    exhibitions = store.get_exhibitions()
+
+    # Verify query aggregated assets and did not multiply rows
+    assert len(exhibitions) == 3
+    ids = [e.exhibition_id for e in exhibitions]
+    assert ids == ["ex001", "exhibition001", "ex003"]
+    assert len(set(ids)) == 3
+
+    # Check Cypher query used in session.run
+    called_query = session.run.call_args[0][0]
+    assert "collect(DISTINCT" in called_query
+    assert "asset_ids" in called_query
+
+
+def test_neo4j_store_get_exhibition_ratings_with_multiple_assets_and_feedback(mock_driver):
+    """
+    Verify get_exhibition_ratings returns each exhibition exactly once with correct
+    aggregated average_rating, feedback_count, and comments even when multiple feedback
+    records and multiple exhibitions (including ex001 and exhibition001) exist.
+    """
+    driver, session = mock_driver
+
+    ratings_records = [
+        {
+            "exhibition_id": "ex001",
+            "name": "Indian Heritage Exhibition",
+            "average_rating": 4.5,
+            "feedback_count": 2,
+            "comments": ["Great display!", "Loved the bronzes!"],
+        },
+        {
+            "exhibition_id": "exhibition001",
+            "name": "Chola Bronzes Special",
+            "average_rating": 5.0,
+            "feedback_count": 1,
+            "comments": ["Masterpiece!"],
+        },
+    ]
+
+    session.run.return_value = DummyResult(ratings_records)
+
+    store = Neo4jHeritageStore(driver=driver)
+    summaries = store.get_exhibition_ratings()
+
+    assert len(summaries) == 2
+    assert summaries[0].exhibition_id == "ex001"
+    assert summaries[0].feedback_count == 2
+    assert summaries[0].average_rating == 4.5
+    assert len(summaries[0].comments) == 2
+
+    assert summaries[1].exhibition_id == "exhibition001"
+    assert summaries[1].feedback_count == 1
+    assert summaries[1].average_rating == 5.0
+

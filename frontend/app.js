@@ -768,7 +768,7 @@ function initializeArchivesPage() {
 async function loadExhibitions() {
     const tbody = document.getElementById("exhibitions-table-body");
     if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="5">Loading exhibitions...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6">Loading exhibitions...</td></tr>';
     }
 
     try {
@@ -776,11 +776,20 @@ async function loadExhibitions() {
         if (!tbody) return;
 
         if (!exhibitions || exhibitions.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5">No exhibitions found.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6">No exhibitions found.</td></tr>';
             return;
         }
 
-        tbody.innerHTML = exhibitions.map(e => `
+        // Deduplicate by exhibition_id to safeguard against any repeated records
+        const seen = new Set();
+        const uniqueExhibitions = exhibitions.filter(e => {
+            const key = (e.exhibition_id || "").toLowerCase();
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+
+        tbody.innerHTML = uniqueExhibitions.map(e => `
             <tr>
                 <td>${escapeHTML(e.exhibition_id)}</td>
                 <td><strong>${escapeHTML(e.name)}</strong></td>

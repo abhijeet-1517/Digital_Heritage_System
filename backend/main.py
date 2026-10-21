@@ -58,6 +58,19 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def add_no_cache_headers(request, call_next):
+    response = await call_next(request)
+    # Prevent browsers from holding stale cache of static JS, CSS, and HTML during development
+    path = request.url.path
+    if path.endswith((".js", ".css", ".html")) or path in ["/", "/assets", "/conservation", "/funding", "/archives", "/exhibitions"]:
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
+
 def get_store() -> Union[Neo4jHeritageStore, InMemoryHeritageStore]:
     """
     Dependency injection for data repository layer.

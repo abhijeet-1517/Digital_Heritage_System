@@ -113,7 +113,7 @@ def test_live_neo4j_aura_connectivity_and_operations():
             )
         )
         assert created_proj.project_id == test_proj_id
-        
+
         # Funding safe lifecycle on test project
         test_fund_id = "test_fd_live_999"
         created_fund = store.add_funding(
@@ -128,7 +128,7 @@ def test_live_neo4j_aura_connectivity_and_operations():
         # Project deletion must be blocked while funding exists
         with pytest.raises(ValueError):
             store.delete_project(test_proj_id)
-        
+
         # Delete funding first, then project
         store.delete_funding(test_fund_id)
         deleted_proj = store.delete_project(test_proj_id)
@@ -143,6 +143,21 @@ def test_live_neo4j_aura_connectivity_and_operations():
 
         exhibitions = store.get_exhibitions()
         assert len(exhibitions) >= 1
+
+        # 12. Read-only Database Explorer verification on live Aura
+        inv = store.get_explorer_entities(page=1, page_size=10)
+        assert inv.total >= 10
+        assert len(inv.items) >= 1
+
+        # Detail inspection on existing asset h001
+        h001_detail = store.get_explorer_entity_detail("HeritageAsset", "h001")
+        assert h001_detail.id == "h001"
+        assert len(h001_detail.relationships) >= 1
+
+        # Bounded graph query
+        graph = store.get_explorer_graph(limit=30)
+        assert graph.total_nodes >= 5
+        assert graph.total_edges >= 1
     finally:
         with driver.session() as s:
             s.run("MATCH (a:HeritageAsset {asset_id: $id}) DETACH DELETE a", id=test_id)

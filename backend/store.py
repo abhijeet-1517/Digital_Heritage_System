@@ -10,8 +10,14 @@ from backend.models import (
     DashboardStats,
     FundingReportResponse,
     FundingRecordResponse,
-    FundingSummary,
     ExhibitionRatingSummary,
+    ExplorerEntitySummary,
+    ExplorerInventoryResponse,
+    ExplorerRelationshipItem,
+    ExplorerEntityDetail,
+    ExplorerGraphNode,
+    ExplorerGraphEdge,
+    ExplorerGraphResponse,
 )
 
 
@@ -522,6 +528,411 @@ class InMemoryHeritageStore:
         # Safely remove associated visitor feedback given for this exhibition
         self.feedback = [f for f in self.feedback if f.get("exhibition_id") != exhibition_id]
         return deleted
+    # -------------------------------------------------------------------------
+    # Database Explorer Operations (In-Memory Implementation)
+    # -------------------------------------------------------------------------
+    ALLOWED_LABELS = {
+        "HeritageAsset",
+        "ConservationProject",
+        "Funding",
+        "DigitalArchive",
+        "Exhibition",
+        "VisitorFeedback",
+    }
+
+    ALLOWED_REL_TYPES = {
+        "FEATURED_IN",
+        "CONSERVES",
+        "ALLOCATED_TO",
+        "DOCUMENTED_IN",
+        "GIVEN_FOR",
+        "MANAGES",
+    }
+
+    def _get_all_memory_entities(self) -> List[ExplorerEntitySummary]:
+        items: List[ExplorerEntitySummary] = []
+        # 1. Assets
+        for aid, a in self.assets.items():
+            loc = a.get("location") or ""
+            status = a.get("preservation_status") or ""
+            items.append(
+                ExplorerEntitySummary(
+                    id=aid,
+                    label="HeritageAsset",
+                    name=a.get("name") or aid,
+                    subtitle=f"{loc} • {status}".strip(" •"),
+                    properties=dict(a),
+                )
+            )
+        # 2. Projects
+        for pid, p in self.projects.items():
+            status = p.get("status") or ""
+            budget = p.get("budget", 0)
+            items.append(
+                ExplorerEntitySummary(
+                    id=pid,
+                    label="ConservationProject",
+                    name=p.get("project_name") or pid,
+                    subtitle=f"{status} • ₹{float(budget):,.0f}".strip(" •"),
+                    properties=dict(p),
+                )
+            )
+        # 3. Funding
+        for fid, f in self.funding.items():
+            alloc = f.get("allocated_amount", 0)
+            util = f.get("utilized_amount", 0)
+            items.append(
+                ExplorerEntitySummary(
+                    id=fid,
+                    label="Funding",
+                    name=f"Funding {fid}",
+                    subtitle=f"Alloc: ₹{float(alloc):,.0f} • Util: ₹{float(util):,.0f}",
+                    properties=dict(f),
+                )
+            )
+        # 4. Archives
+        for did, d in self.archives.items():
+            access = d.get("access_level") or "Public"
+            f_ref = d.get("file_reference") or ""
+            items.append(
+                ExplorerEntitySummary(
+                    id=did,
+                    label="DigitalArchive",
+                    name=d.get("title") or did,
+                    subtitle=f"{access} • {f_ref}".strip(" •"),
+                    properties=dict(d),
+                )
+            )
+        # 5. Exhibitions
+        for eid, e in self.exhibitions.items():
+            status = e.get("status") or "Current"
+            start = e.get("start_date") or ""
+            items.append(
+                ExplorerEntitySummary(
+                    id=eid,
+                    label="Exhibition",
+                    name=e.get("name") or eid,
+                    subtitle=f"{status} • {start}".strip(" •"),
+                    properties=dict(e),
+                )
+            )
+        # 6. Feedback
+        for f in self.feedback:
+            fid = f"f{f.get('id', 1):03d}"
+            rating = f.get("rating", 5)
+            comment = f.get("comment") or ""
+            f_props = dict(f)
+            f_props["feedback_id"] = fid
+            items.append(
+                ExplorerEntitySummary(
+                    id=fid,
+                    label="VisitorFeedback",
+                    name=f"Feedback (★ {rating})",
+                    subtitle=comment[:50] + ("..." if len(comment) > 50 else ""),
+                    properties=f_props,
+                )
+            )
+        return items
+
+    def get_explorer_entities(
+        self,
+        label: Optional[str] = None,
+        search: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> ExplorerInventoryResponse:
+        if label and label not in self.ALLOWED_LABELS:
+            raise ValueError(f"Invalid entity label '{label}'. Allowed labels: {sorted(self.ALLOWED_LABELS)}")
+
+        all_items = self._get_all_memory_entities()
+
+        if label:
+            all_items = [item for item in all_items if item.label == label]
+
+        if search and search.strip():
+            s = search.strip().lower()
+            all_items = [
+                item for item in all_items
+                if s in item.id.lower()
+                or s in item.name.lower()
+                or s in item.subtitle.lower()
+                or any(s in str(v).lower() for v in item.properties.values())
+            ]
+
+        total = len(all_items)
+        page = max(1, page)
+        page_size = max(1, min(page_size, 100))
+        total_pages = max(1, (total + page_size - 1) // page_size) if total > 0 else 1
+
+        start_idx = (page - 1) * page_size
+        paged_items = all_items[start_idx : start_idx + page_size]
+
+        return ExplorerInventoryResponse(
+            total=total,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+            items=paged_items,
+        )
+
+    def get_explorer_entity_detail(self, label: str, entity_id: str) -> ExplorerEntityDetail:
+        if label not in self.ALLOWED_LABELS:
+            raise ValueError(f"Invalid entity label '{label}'. Allowed labels: {sorted(self.ALLOWED_LABELS)}")
+
+        all_items = self._get_all_memory_entities()
+        target = next((item for item in all_items if item.label == label and item.id.lower() == entity_id.lower()), None)
+        if not target:
+            raise KeyError(f"Entity '{entity_id}' of type '{label}' not found.")
+
+        relationships: List[ExplorerRelationshipItem] = []
+
+        if label == "HeritageAsset":
+            aid = target.id
+            # Incoming from projects: (:ConservationProject)-[:CONSERVES]->(:HeritageAsset)
+            for pid, p in self.projects.items():
+                if p.get("asset_id") == aid:
+                    relationships.append(
+                        ExplorerRelationshipItem(
+                            rel_type="CONSERVES",
+                            direction="incoming",
+                            target_id=pid,
+                            target_label="ConservationProject",
+                            target_name=p.get("project_name") or pid,
+                        )
+                    )
+            # Incoming from archives: (:HeritageAsset)-[:DOCUMENTED_IN]->(:DigitalArchive)
+            for did, d in self.archives.items():
+                if d.get("asset_id") == aid:
+                    relationships.append(
+                        ExplorerRelationshipItem(
+                            rel_type="DOCUMENTED_IN",
+                            direction="outgoing",
+                            target_id=did,
+                            target_label="DigitalArchive",
+                            target_name=d.get("title") or did,
+                        )
+                    )
+            # Outgoing to exhibitions: (:HeritageAsset)-[:FEATURED_IN]->(:Exhibition)
+            for eid, e in self.exhibitions.items():
+                if e.get("asset_id") == aid:
+                    relationships.append(
+                        ExplorerRelationshipItem(
+                            rel_type="FEATURED_IN",
+                            direction="outgoing",
+                            target_id=eid,
+                            target_label="Exhibition",
+                            target_name=e.get("name") or eid,
+                        )
+                    )
+
+        elif label == "ConservationProject":
+            pid = target.id
+            aid = target.properties.get("asset_id")
+            if aid and aid in self.assets:
+                relationships.append(
+                    ExplorerRelationshipItem(
+                        rel_type="CONSERVES",
+                        direction="outgoing",
+                        target_id=aid,
+                        target_label="HeritageAsset",
+                        target_name=self.assets[aid].get("name") or aid,
+                    )
+                )
+            for fid, f in self.funding.items():
+                if f.get("project_id") == pid:
+                    relationships.append(
+                        ExplorerRelationshipItem(
+                            rel_type="ALLOCATED_TO",
+                            direction="incoming",
+                            target_id=fid,
+                            target_label="Funding",
+                            target_name=f"Funding {fid}",
+                        )
+                    )
+
+        elif label == "Funding":
+            pid = target.properties.get("project_id")
+            if pid and pid in self.projects:
+                relationships.append(
+                    ExplorerRelationshipItem(
+                        rel_type="ALLOCATED_TO",
+                        direction="outgoing",
+                        target_id=pid,
+                        target_label="ConservationProject",
+                        target_name=self.projects[pid].get("project_name") or pid,
+                    )
+                )
+
+        elif label == "DigitalArchive":
+            aid = target.properties.get("asset_id")
+            if aid and aid in self.assets:
+                relationships.append(
+                    ExplorerRelationshipItem(
+                        rel_type="DOCUMENTED_IN",
+                        direction="incoming",
+                        target_id=aid,
+                        target_label="HeritageAsset",
+                        target_name=self.assets[aid].get("name") or aid,
+                    )
+                )
+
+        elif label == "Exhibition":
+            eid = target.id
+            aid = target.properties.get("asset_id")
+            if aid and aid in self.assets:
+                relationships.append(
+                    ExplorerRelationshipItem(
+                        rel_type="FEATURED_IN",
+                        direction="incoming",
+                        target_id=aid,
+                        target_label="HeritageAsset",
+                        target_name=self.assets[aid].get("name") or aid,
+                    )
+                )
+            for f in self.feedback:
+                if f.get("exhibition_id") == eid:
+                    fid = f"f{f.get('id', 1):03d}"
+                    relationships.append(
+                        ExplorerRelationshipItem(
+                            rel_type="GIVEN_FOR",
+                            direction="incoming",
+                            target_id=fid,
+                            target_label="VisitorFeedback",
+                            target_name=f"Feedback (★ {f.get('rating', 5)})",
+                        )
+                    )
+
+        elif label == "VisitorFeedback":
+            eid = target.properties.get("exhibition_id")
+            if eid and eid in self.exhibitions:
+                relationships.append(
+                    ExplorerRelationshipItem(
+                        rel_type="GIVEN_FOR",
+                        direction="outgoing",
+                        target_id=eid,
+                        target_label="Exhibition",
+                        target_name=self.exhibitions[eid].get("name") or eid,
+                    )
+                )
+
+        mgmt_urls = {
+            "HeritageAsset": "/assets.html",
+            "ConservationProject": "/conservation.html",
+            "Funding": "/funding.html",
+            "DigitalArchive": "/archives.html",
+            "Exhibition": "/exhibitions.html",
+            "VisitorFeedback": "/exhibitions.html",
+        }
+
+        return ExplorerEntityDetail(
+            id=target.id,
+            label=label,
+            properties=target.properties,
+            relationships=relationships,
+            management_url=mgmt_urls.get(label),
+        )
+
+    def get_explorer_graph(
+        self,
+        focus_label: Optional[str] = None,
+        focus_id: Optional[str] = None,
+        label_filter: Optional[str] = None,
+        rel_filter: Optional[str] = None,
+        limit: int = 40,
+    ) -> ExplorerGraphResponse:
+        limit = max(1, min(limit, 100))
+        if focus_label and focus_label not in self.ALLOWED_LABELS:
+            raise ValueError(f"Invalid focus label '{focus_label}'")
+        if label_filter and label_filter not in self.ALLOWED_LABELS:
+            raise ValueError(f"Invalid label filter '{label_filter}'")
+        if rel_filter and rel_filter not in self.ALLOWED_REL_TYPES:
+            raise ValueError(f"Invalid relationship filter '{rel_filter}'")
+
+        all_summaries = {item.id: item for item in self._get_all_memory_entities()}
+        nodes_dict: Dict[str, ExplorerGraphNode] = {}
+        edges_list: List[ExplorerGraphEdge] = []
+        seen_edges = set()
+
+        def add_node(entity_id: str):
+            if entity_id in all_summaries and entity_id not in nodes_dict:
+                s = all_summaries[entity_id]
+                nodes_dict[entity_id] = ExplorerGraphNode(
+                    id=s.id,
+                    label=s.label,
+                    name=s.name,
+                    subtitle=s.subtitle,
+                    properties=s.properties,
+                )
+
+        # Build in-memory graph edges
+        all_edges: List[ExplorerGraphEdge] = []
+        # 1. Projects -> Assets (CONSERVES)
+        for pid, p in self.projects.items():
+            aid = p.get("asset_id")
+            if aid:
+                all_edges.append(ExplorerGraphEdge(id=f"{pid}->{aid}:CONSERVES", source=pid, target=aid, type="CONSERVES", label="CONSERVES"))
+        # 2. Funding -> Projects (ALLOCATED_TO)
+        for fid, f in self.funding.items():
+            pid = f.get("project_id")
+            if pid:
+                all_edges.append(ExplorerGraphEdge(id=f"{fid}->{pid}:ALLOCATED_TO", source=fid, target=pid, type="ALLOCATED_TO", label="ALLOCATED_TO"))
+        # 3. Assets -> Archives (DOCUMENTED_IN)
+        for did, d in self.archives.items():
+            aid = d.get("asset_id")
+            if aid:
+                all_edges.append(ExplorerGraphEdge(id=f"{aid}->{did}:DOCUMENTED_IN", source=aid, target=did, type="DOCUMENTED_IN", label="DOCUMENTED_IN"))
+        # 4. Assets -> Exhibitions (FEATURED_IN)
+        for eid, e in self.exhibitions.items():
+            aid = e.get("asset_id")
+            if aid:
+                all_edges.append(ExplorerGraphEdge(id=f"{aid}->{eid}:FEATURED_IN", source=aid, target=eid, type="FEATURED_IN", label="FEATURED_IN"))
+        # 5. Feedback -> Exhibitions (GIVEN_FOR)
+        for f in self.feedback:
+            eid = f.get("exhibition_id")
+            fid = f"f{f.get('id', 1):03d}"
+            if eid:
+                all_edges.append(ExplorerGraphEdge(id=f"{fid}->{eid}:GIVEN_FOR", source=fid, target=eid, type="GIVEN_FOR", label="GIVEN_FOR"))
+
+        if focus_id and focus_label:
+            add_node(focus_id)
+            for edge in all_edges:
+                if len(edges_list) >= limit:
+                    break
+                if edge.source == focus_id or edge.target == focus_id:
+                    if rel_filter and edge.type != rel_filter:
+                        continue
+                    add_node(edge.source)
+                    add_node(edge.target)
+                    edges_list.append(edge)
+        else:
+            for edge in all_edges:
+                if len(edges_list) >= limit:
+                    break
+                if rel_filter and edge.type != rel_filter:
+                    continue
+                s_lbl = all_summaries.get(edge.source, ExplorerEntitySummary(id="", label="", name="")).label
+                t_lbl = all_summaries.get(edge.target, ExplorerEntitySummary(id="", label="", name="")).label
+                if label_filter and label_filter not in (s_lbl, t_lbl):
+                    continue
+                add_node(edge.source)
+                add_node(edge.target)
+                edges_list.append(edge)
+
+            # Include initial standalone nodes if node count is low
+            if len(nodes_dict) < 5:
+                for sid, s in all_summaries.items():
+                    if len(nodes_dict) >= 15:
+                        break
+                    add_node(sid)
+
+        return ExplorerGraphResponse(
+            nodes=list(nodes_dict.values()),
+            edges=edges_list,
+            total_nodes=len(nodes_dict),
+            total_edges=len(edges_list),
+            truncated=len(edges_list) >= limit,
+        )
+
 
 store = InMemoryHeritageStore()
 

@@ -233,3 +233,233 @@ th {
         grid-template-columns: 1fr;
     }
 }
+
+/* =============================================================================
+   Database Explorer Styles
+   ============================================================================= */
+.view-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 8px;
+}
+
+.view-tab-btn {
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.view-tab-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.filter-bar > div {
+    flex: 1;
+    min-width: 180px;
+}
+
+.filter-bar .button-group {
+    display: flex;
+    gap: 8px;
+}
+
+.entity-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.badge-HeritageAsset { background: #e0f2fe; color: #0369a1; }
+.badge-ConservationProject { background: #fef3c7; color: #92400e; }
+.badge-Funding { background: #dcfce7; color: #15803d; }
+.badge-DigitalArchive { background: #f3e8ff; color: #6b21a8; }
+.badge-Exhibition { background: #ffedd5; color: #c2410c; }
+.badge-VisitorFeedback { background: #fce7f3; color: #9d174d; }
+.badge-Organization { background: #e2e8f0; color: #334155; }
+.badge-Researcher { background: #ede9fe; color: #5b21b6; }
+.badge-PreservationReport { background: #f1f5f9; color: #475569; }
+
+.pagination-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.graph-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    padding: 6px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    flex-wrap: wrap;
+}
+
+.graph-toolbar .button-group {
+    display: flex;
+    gap: 4px;
+}
+
+.graph-toolbar button {
+    padding: 4px 10px;
+    font-size: 0.85rem;
+    line-height: 1.2;
+}
+
+.graph-container {
+    position: relative;
+    width: 100%;
+    height: 560px;
+    background: #fafbfa;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    user-select: none;
+}
+
+.graph-container:active {
+    cursor: grabbing;
+}
+
+.graph-tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: rgba(15, 23, 42, 0.92);
+    color: #ffffff;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    line-height: 1.3;
+    z-index: 100;
+    max-width: 260px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+    transform: translate(-50%, -100%);
+    margin-top: -10px;
+    white-space: nowrap;
+}
+
+.graph-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 12px;
+    font-size: 0.85rem;
+}
+
+.graph-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.legend-color-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.graph-node {
+    cursor: pointer;
+    transition: transform 0.15s ease-out;
+}
+
+.graph-node:hover circle {
+    stroke: #0f172a;
+    stroke-width: 3px;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));
+}
+
+.graph-edge {
+    transition: stroke 0.15s ease-out, stroke-width 0.15s ease-out;
+}
+
+.graph-edge:hover {
+    stroke: #0284c7;
+    stroke-width: 2.5px;
+    cursor: pointer;
+}
+
+.graph-edge-label {
+    pointer-events: none;
+    user-select: none;
+    font-family: inherit;
+    font-size: 9px;
+    font-weight: 600;
+}
+
+.inspector-card {
+    border-top: 3px solid var(--primary);
+    margin-top: 20px;
+}
+
+.property-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.property-item {
+    padding: 8px 12px;
+    background: #f8faf8;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+.property-item strong {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--muted);
+    text-transform: uppercase;
+}
+
+.relationship-list {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.relationship-chip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: white;
+}
+
+.relationship-chip:hover {
+    background: #f3f6f3;
+}

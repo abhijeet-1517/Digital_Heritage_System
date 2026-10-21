@@ -318,3 +318,175 @@ def test_neo4j_store_get_exhibition_ratings_with_multiple_assets_and_feedback(mo
     assert summaries[1].feedback_count == 1
     assert summaries[1].average_rating == 5.0
 
+
+def test_neo4j_store_explorer_entities_pagination(mock_driver):
+    driver, session = mock_driver
+
+    # Mock count then items
+    count_rec = {"total": 25}
+    item_nodes = [
+        {
+            "n": {"asset_id": "h001", "name": "Brihadisvara Temple", "location": "Thanjavur"},
+            "lbls": ["HeritageAsset"],
+        },
+        {
+            "n": {"project_id": "cp001", "project_name": "Heritage Restoration Project", "budget": 500000.0},
+            "lbls": ["ConservationProject"],
+        },
+    ]
+
+    session.run.return_value.single.return_value = count_rec
+    session.run.return_value.__iter__.return_value = iter(item_nodes)
+
+    store = Neo4jHeritageStore(driver=driver)
+    res = store.get_explorer_entities(page=1, page_size=2)
+
+    assert res.total == 25
+    assert res.page == 1
+    assert res.page_size == 2
+    assert res.total_pages == 13
+    assert len(res.items) == 2
+    assert res.items[0].id == "h001"
+    assert res.items[0].label == "HeritageAsset"
+    assert res.items[1].id == "cp001"
+    assert res.items[1].label == "ConservationProject"
+
+
+def test_neo4j_store_explorer_entity_detail(mock_driver):
+    driver, session = mock_driver
+
+    node_data = {
+        "n": {
+            "asset_id": "h001",
+            "name": "Brihadisvara Temple",
+            "location": "Thanjavur",
+            "condition": "Good",
+        },
+        "out_rels": [
+            {
+                "rel_type": "FEATURED_IN",
+                "direction": "outgoing",
+                "target_props": {"exhibition_id": "ex001", "name": "Indian Heritage Exhibition"},
+                "target_labels": ["Exhibition"],
+            }
+        ],
+        "in_rels": [
+            {
+                "rel_type": "CONSERVES",
+                "direction": "incoming",
+                "target_props": {"project_id": "cp001", "project_name": "Temple Restoration"},
+                "target_labels": ["ConservationProject"],
+            }
+        ],
+    }
+
+    session.run.return_value.single.return_value = node_data
+
+    store = Neo4jHeritageStore(driver=driver)
+    detail = store.get_explorer_entity_detail("HeritageAsset", "h001")
+
+    assert detail.id == "h001"
+    assert detail.label == "HeritageAsset"
+    assert detail.properties["location"] == "Thanjavur"
+    assert len(detail.relationships) == 2
+
+    out_rel = next(r for r in detail.relationships if r.direction == "outgoing")
+    assert out_rel.rel_type == "FEATURED_IN"
+    assert out_rel.target_id == "ex001"
+    assert out_rel.target_label == "Exhibition"
+
+    in_rel = next(r for r in detail.relationships if r.direction == "incoming")
+    assert in_rel.rel_type == "CONSERVES"
+    assert in_rel.target_id == "cp001"
+
+
+def test_neo4j_store_explorer_invalid_label_or_rel_filter(mock_driver):
+    driver, session = mock_driver
+    store = Neo4jHeritageStore(driver=driver)
+
+    with pytest.raises(ValueError, match="Invalid entity label"):
+        store.get_explorer_entities(label="UnsafeLabel; DROP TABLE")
+
+    with pytest.raises(ValueError, match="Invalid entity label"):
+        store.get_explorer_entity_detail(label="FakeLabel", entity_id="123")
+
+    with pytest.raises(ValueError, match="Invalid relationship filter"):
+        store.get_explorer_graph(rel_filter="INVALID_REL")
+
+
+def test_in_memory_store_explorer_functionality():
+    from backend.store import InMemoryHeritageStore
+
+    mem_store = InMemoryHeritageStore()
+
+    # 1. Inventory & Pagination
+    inv = mem_store.get_explorer_entities(page=1, page_size=3)
+    assert inv.total > 0
+    assert len(inv.items) == 3
+    assert inv.page == 1
+
+    # 2. Filtering by Label
+    inv_assets = mem_store.get_explorer_entities(label="HeritageAsset")
+    assert all(i.label == "HeritageAsset" for i in inv_assets.items)
+
+    # 3. Entity Detail
+    first_asset_id = inv_assets.items[0].id
+    detail = mem_store.get_explorer_entity_detail("HeritageAsset", first_asset_id)
+    assert detail.id == first_asset_id
+    assert detail.label == "HeritageAsset"
+    assert detail.management_url == "/assets.html"
+
+    # 4. Graph structure
+    graph = mem_store.get_explorer_graph(limit=20)
+    assert graph.total_nodes > 0
+    assert isinstance(graph.edges, list)
+    assert graph.truncated is False
+
+    # 5. Missing entity error handling
+    with pytest.raises(KeyError, match="not found"):
+        mem_store.get_explorer_entity_detail("HeritageAsset", "nonexistent_id_999")
+
+    # 6. Graph filtering by label includes matching relationships and endpoint nodes
+    graph_filtered = mem_store.get_explorer_graph(label_filter="HeritageAsset", limit=20)
+    assert len(graph_filtered.edges) > 0
+    # Every edge returned must connect to at least one HeritageAsset
+    all_node_labels = {n.id: n.label for n in graph_filtered.nodes}
+    for e in graph_filtered.edges:
+        assert all_node_labels.get(e.source) == "HeritageAsset" or all_node_labels.get(e.target) == "HeritageAsset"
+
+
+def test_neo4j_store_explorer_graph_label_filter_query(mock_driver):
+    driver, session = mock_driver
+    store = Neo4jHeritageStore(driver=driver)
+
+    # Mock return values for Cypher runs (edges query followed by isolated nodes query)
+    edges_record = {
+        "a": {"asset_id": "h001", "name": "Brihadisvara Temple"},
+        "a_labels": ["HeritageAsset"],
+        "r": {},
+        "rel_type": "DOCUMENTED_IN",
+        "b": {"archive_id": "da001", "description": "3D scan of temple"},
+        "b_labels": ["DigitalArchive"],
+    }
+    isolated_record = {
+        "n": {"asset_id": "h002", "name": "Meenakshi Temple"},
+        "lbls": ["HeritageAsset"],
+    }
+    session.run.side_effect = [[edges_record], [isolated_record]]
+
+    res = store.get_explorer_graph(label_filter="HeritageAsset", limit=10)
+    assert res.total_edges == 1
+    assert res.total_nodes == 3  # h001, da001 + isolated h002
+    assert res.edges[0].source == "h001"
+    assert res.edges[0].target == "da001"
+    assert res.edges[0].type == "DOCUMENTED_IN"
+
+    # Verify executed Cypher query uses unquoted $label_filter parameter on first call (edges query)
+    edges_call = session.run.call_args_list[0]
+    cypher_executed = edges_call[0][0]
+    call_kwargs = edges_call[1]
+
+    assert "$label_filter IN labels(a)" in cypher_executed
+    assert "'$label_filter'" not in cypher_executed
+    assert call_kwargs.get("label_filter") == "HeritageAsset"
+

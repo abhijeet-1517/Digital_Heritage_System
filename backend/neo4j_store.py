@@ -19,6 +19,13 @@ from backend.models import (
     FeedbackResponse,
     ExhibitionRatingSummary,
     DashboardStats,
+    ExplorerEntitySummary,
+    ExplorerInventoryResponse,
+    ExplorerRelationshipItem,
+    ExplorerEntityDetail,
+    ExplorerGraphNode,
+    ExplorerGraphEdge,
+    ExplorerGraphResponse,
 )
 
 logger = logging.getLogger("heritage.neo4j_store")
@@ -247,11 +254,11 @@ class Neo4jHeritageStore:
             dep_rec = session.run(dep_cypher, asset_id=asset_id).single()
             if not dep_rec or not dep_rec["exact_id"]:
                 raise KeyError(f"Heritage Asset with ID '{asset_id}' not found.")
-            
+
             projects = [pid for pid in dep_rec["projects"] if pid]
             archives = [did for did in dep_rec["archives"] if did]
             exhibitions = [eid for eid in dep_rec["exhibitions"] if eid]
-            
+
             conflicts = []
             if projects:
                 conflicts.append(f"conservation projects ({', '.join(projects)})")
@@ -259,7 +266,7 @@ class Neo4jHeritageStore:
                 conflicts.append(f"digital archives ({', '.join(archives)})")
             if exhibitions:
                 conflicts.append(f"exhibitions ({', '.join(exhibitions)})")
-                
+
             if conflicts:
                 raise ValueError(
                     f"Cannot delete asset '{asset_id}' because it is linked to active {'; '.join(conflicts)}. "
@@ -396,7 +403,7 @@ class Neo4jHeritageStore:
             check_rec = session.run(check_funding_cypher, project_id=project_id).single()
             if not check_rec or not check_rec["exact_id"]:
                 raise KeyError(f"Conservation Project with ID '{project_id}' not found.")
-            
+
             f_ids = [fid for fid in check_rec["funding_ids"] if fid]
             if f_ids:
                 raise ValueError(
@@ -827,4 +834,447 @@ class Neo4jHeritageStore:
             if not record:
                 raise KeyError(f"Exhibition with ID '{exhibition_id}' not found.")
             return dict(record["snapshot"])
+    # -------------------------------------------------------------------------
+    # Database Explorer Operations
+    # -------------------------------------------------------------------------
+    LABEL_ID_MAP = {
+        "HeritageAsset": "asset_id",
+        "ConservationProject": "project_id",
+        "Funding": "funding_id",
+        "DigitalArchive": "archive_id",
+        "Exhibition": "exhibition_id",
+        "VisitorFeedback": "feedback_id",
+        "Organization": "org_id",
+        "Researcher": "researcher_id",
+        "PreservationReport": "report_id",
+    }
 
+    ALLOWED_LABELS = set(LABEL_ID_MAP.keys())
+    ALLOWED_REL_TYPES = {
+        "FEATURED_IN",
+        "CONSERVES",
+        "ALLOCATED_TO",
+        "DOCUMENTED_IN",
+        "GIVEN_FOR",
+        "MANAGES",
+        "ACCESSES",
+        "REPORTS_ON",
+    }
+
+    @staticmethod
+    def _extract_entity_info(node_dict: dict, label: str):
+        id_prop = Neo4jHeritageStore.LABEL_ID_MAP.get(label, "id")
+        entity_id = str(node_dict.get(id_prop) or node_dict.get("id") or "")
+
+        name = ""
+        subtitle = ""
+
+        if label == "HeritageAsset":
+            name = node_dict.get("name") or entity_id
+            loc = node_dict.get("location") or ""
+            status = node_dict.get("preservation_status") or node_dict.get("condition") or ""
+            subtitle = f"{loc} • {status}".strip(" •")
+        elif label == "ConservationProject":
+            name = node_dict.get("project_name") or node_dict.get("name") or entity_id
+            status = node_dict.get("status") or ""
+            budget = node_dict.get("budget") or node_dict.get("funding_amount")
+            amt = f"₹{float(budget):,.0f}" if budget is not None else ""
+            subtitle = f"{status} • {amt}".strip(" •")
+        elif label == "Funding":
+            name = f"Funding {entity_id}"
+            alloc = node_dict.get("allocated_amount")
+            util = node_dict.get("utilized_amount")
+            alloc_str = f"Alloc: ₹{float(alloc):,.0f}" if alloc is not None else ""
+            util_str = f"Util: ₹{float(util):,.0f}" if util is not None else ""
+            subtitle = f"{alloc_str} • {util_str}".strip(" •")
+        elif label == "DigitalArchive":
+            name = node_dict.get("title") or node_dict.get("description") or entity_id
+            access = node_dict.get("access_level") or "Public"
+            f_ref = node_dict.get("file_reference") or ""
+            subtitle = f"{access} • {f_ref}".strip(" •")
+        elif label == "Exhibition":
+            name = node_dict.get("name") or entity_id
+            status = node_dict.get("status") or "Current"
+            start = node_dict.get("start_date") or ""
+            subtitle = f"{status} • {start}".strip(" •")
+        elif label == "VisitorFeedback":
+            rating = node_dict.get("rating")
+            comment = node_dict.get("comment") or node_dict.get("comments") or ""
+            name = f"Feedback (★ {rating})" if rating else "Visitor Feedback"
+            subtitle = comment[:50] + ("..." if len(comment) > 50 else "")
+        elif label == "Organization":
+            name = node_dict.get("name") or entity_id
+            subtitle = "Heritage Organization"
+        elif label == "Researcher":
+            name = node_dict.get("name") or entity_id
+            access = node_dict.get("access_level") or ""
+            subtitle = f"Access: {access}"
+        elif label == "PreservationReport":
+            name = f"Report {entity_id}"
+            cond = node_dict.get("condition") or ""
+            prog = node_dict.get("restoration_progress") or ""
+            subtitle = f"{cond} • {prog}".strip(" •")
+        else:
+            name = node_dict.get("name") or entity_id
+            subtitle = label
+
+        return entity_id, name, subtitle
+
+    def get_explorer_entities(
+        self,
+        label: Optional[str] = None,
+        search: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> ExplorerInventoryResponse:
+        """
+        Query actual Neo4j entities with pagination, label filtering, and search.
+        Validates label against allowlist to strictly prevent arbitrary Cypher execution.
+        """
+        if label and label not in self.ALLOWED_LABELS:
+            raise ValueError(f"Invalid entity label '{label}'. Allowed labels: {sorted(self.ALLOWED_LABELS)}")
+
+        page = max(1, page)
+        page_size = max(1, min(page_size, 100))
+        skip = (page - 1) * page_size
+
+        label_clause = f":`{label}`" if label else ""
+
+        # Build search condition
+        search_filter = ""
+        params = {"skip": skip, "limit": page_size}
+        if search and search.strip():
+            params["search_term"] = search.strip().lower()
+            # Match against common string properties across all nodes
+            search_filter = """
+            AND (
+                toLower(coalesce(n.name, '')) CONTAINS $search_term
+                OR toLower(coalesce(n.project_name, '')) CONTAINS $search_term
+                OR toLower(coalesce(n.title, '')) CONTAINS $search_term
+                OR toLower(coalesce(n.asset_id, '')) CONTAINS $search_term
+                OR toLower(coalesce(n.project_id, '')) CONTAINS $search_term
+                OR toLower(coalesce(n.funding_id, '')) CONTAINS $search_term
+                OR toLower(coalesce(n.archive_id, '')) CONTAINS $search_term
+                OR toLower(coalesce(n.exhibition_id, '')) CONTAINS $search_term
+                OR toLower(coalesce(n.feedback_id, '')) CONTAINS $search_term
+                OR toLower(coalesce(n.location, '')) CONTAINS $search_term
+                OR toLower(coalesce(n.description, '')) CONTAINS $search_term
+                OR toLower(coalesce(n.comment, '')) CONTAINS $search_term
+            )
+            """
+
+        count_cypher = f"""
+        MATCH (n{label_clause})
+        WHERE 1=1 {search_filter}
+        RETURN count(n) AS total
+        """
+
+        items_cypher = f"""
+        MATCH (n{label_clause})
+        WHERE 1=1 {search_filter}
+        WITH n, labels(n) AS lbls
+        ORDER BY head(lbls), coalesce(n.asset_id, n.project_id, n.funding_id, n.archive_id, n.exhibition_id, n.feedback_id, n.org_id, n.researcher_id, n.report_id, id(n)) ASC
+        SKIP $skip
+        LIMIT $limit
+        RETURN n, labels(n) AS lbls
+        """
+
+        with self._get_session() as session:
+            count_rec = session.run(count_cypher, **params).single()
+            total = count_rec["total"] if count_rec else 0
+
+            result = session.run(items_cypher, **params)
+            items = []
+            for r in result:
+                node_props = dict(r["n"])
+                lbls = r["lbls"]
+                matched_label = next((l for l in lbls if l in self.ALLOWED_LABELS), lbls[0] if lbls else "Node")
+                eid, name, subtitle = self._extract_entity_info(node_props, matched_label)
+                items.append(
+                    ExplorerEntitySummary(
+                        id=eid,
+                        label=matched_label,
+                        name=name,
+                        subtitle=subtitle,
+                        properties=node_props,
+                    )
+                )
+
+            total_pages = max(1, (total + page_size - 1) // page_size) if total > 0 else 1
+            return ExplorerInventoryResponse(
+                total=total,
+                page=page,
+                page_size=page_size,
+                total_pages=total_pages,
+                items=items,
+            )
+
+    def get_explorer_entity_detail(self, label: str, entity_id: str) -> ExplorerEntityDetail:
+        """
+        Inspect the full properties and immediate connected relationships of a specific node.
+        """
+        if label not in self.ALLOWED_LABELS:
+            raise ValueError(f"Invalid entity label '{label}'. Allowed labels: {sorted(self.ALLOWED_LABELS)}")
+
+        id_prop = self.LABEL_ID_MAP[label]
+        cypher = f"""
+        MATCH (n:`{label}`)
+        WHERE toLower(toString(n.{id_prop})) = toLower($entity_id)
+        OPTIONAL MATCH (n)-[r_out]->(m_out)
+        OPTIONAL MATCH (n)<-[r_in]-(m_in)
+        RETURN n,
+               collect(DISTINCT {{
+                   rel_type: type(r_out),
+                   direction: 'outgoing',
+                   target_props: properties(m_out),
+                   target_labels: labels(m_out)
+               }}) AS out_rels,
+               collect(DISTINCT {{
+                   rel_type: type(r_in),
+                   direction: 'incoming',
+                   target_props: properties(m_in),
+                   target_labels: labels(m_in)
+               }}) AS in_rels
+        LIMIT 1
+        """
+
+        with self._get_session() as session:
+            rec = session.run(cypher, entity_id=entity_id).single()
+            if not rec or not rec["n"]:
+                raise KeyError(f"Entity '{entity_id}' of type '{label}' not found.")
+
+            node_props = dict(rec["n"])
+            eid, name, _ = self._extract_entity_info(node_props, label)
+
+            relationships: List[ExplorerRelationshipItem] = []
+
+            # Process outgoing relationships
+            for item in rec["out_rels"]:
+                rel_type = item.get("rel_type")
+                if not rel_type or not item.get("target_props"):
+                    continue
+                t_labels = item.get("target_labels") or []
+                t_label = next((l for l in t_labels if l in self.ALLOWED_LABELS), t_labels[0] if t_labels else "Node")
+                t_props = item.get("target_props") or {}
+                t_id, t_name, _ = self._extract_entity_info(t_props, t_label)
+                relationships.append(
+                    ExplorerRelationshipItem(
+                        rel_type=rel_type,
+                        direction="outgoing",
+                        target_id=t_id,
+                        target_label=t_label,
+                        target_name=t_name,
+                    )
+                )
+
+            # Process incoming relationships
+            for item in rec["in_rels"]:
+                rel_type = item.get("rel_type")
+                if not rel_type or not item.get("target_props"):
+                    continue
+                t_labels = item.get("target_labels") or []
+                t_label = next((l for l in t_labels if l in self.ALLOWED_LABELS), t_labels[0] if t_labels else "Node")
+                t_props = item.get("target_props") or {}
+                t_id, t_name, _ = self._extract_entity_info(t_props, t_label)
+                relationships.append(
+                    ExplorerRelationshipItem(
+                        rel_type=rel_type,
+                        direction="incoming",
+                        target_id=t_id,
+                        target_label=t_label,
+                        target_name=t_name,
+                    )
+                )
+
+            # Determine corresponding management URL
+            mgmt_urls = {
+                "HeritageAsset": "/assets.html",
+                "ConservationProject": "/conservation.html",
+                "Funding": "/funding.html",
+                "DigitalArchive": "/archives.html",
+                "Exhibition": "/exhibitions.html",
+                "VisitorFeedback": "/exhibitions.html",
+            }
+
+            return ExplorerEntityDetail(
+                id=eid,
+                label=label,
+                properties=node_props,
+                relationships=relationships,
+                management_url=mgmt_urls.get(label),
+            )
+
+    def get_explorer_graph(
+        self,
+        focus_label: Optional[str] = None,
+        focus_id: Optional[str] = None,
+        label_filter: Optional[str] = None,
+        rel_filter: Optional[str] = None,
+        limit: int = 40,
+    ) -> ExplorerGraphResponse:
+        """
+        Fetch bounded relationship graph nodes and edges with actual Neo4j types and directions.
+        Supports single-node neighborhood expansion via focus_label and focus_id.
+        """
+        limit = max(1, min(limit, 100))
+
+        if focus_label and focus_label not in self.ALLOWED_LABELS:
+            raise ValueError(f"Invalid focus label '{focus_label}'")
+        if label_filter and label_filter not in self.ALLOWED_LABELS:
+            raise ValueError(f"Invalid label filter '{label_filter}'")
+        if rel_filter and rel_filter not in self.ALLOWED_REL_TYPES:
+            raise ValueError(f"Invalid relationship filter '{rel_filter}'")
+
+        nodes_dict: Dict[str, ExplorerGraphNode] = {}
+        edges_list: List[ExplorerGraphEdge] = []
+        seen_edges = set()
+
+        with self._get_session() as session:
+            if focus_id and focus_label:
+                # Neighborhood expansion around focus node
+                id_prop = self.LABEL_ID_MAP[focus_label]
+                rel_match = f":`{rel_filter}`" if rel_filter else ""
+                cypher = f"""
+                MATCH (center:`{focus_label}`)
+                WHERE toLower(toString(center.{id_prop})) = toLower($focus_id)
+                OPTIONAL MATCH (center)-[r{rel_match}]-(neighbor)
+                RETURN center, labels(center) AS center_labels,
+                       r, type(r) AS rel_type, startNode(r) = center AS is_outgoing,
+                       neighbor, labels(neighbor) AS neighbor_labels
+                LIMIT $limit
+                """
+                results = session.run(cypher, focus_id=focus_id, limit=limit)
+                for rec in results:
+                    c_props = dict(rec["center"])
+                    c_labels = rec["center_labels"]
+                    c_label = next((l for l in c_labels if l in self.ALLOWED_LABELS), focus_label)
+                    cid, cname, csub = self._extract_entity_info(c_props, c_label)
+
+                    if cid not in nodes_dict:
+                        nodes_dict[cid] = ExplorerGraphNode(
+                            id=cid,
+                            label=c_label,
+                            name=cname,
+                            subtitle=csub,
+                            properties=c_props,
+                        )
+
+                    if rec["r"] and rec["neighbor"]:
+                        n_props = dict(rec["neighbor"])
+                        n_labels = rec["neighbor_labels"]
+                        n_label = next((l for l in n_labels if l in self.ALLOWED_LABELS), n_labels[0] if n_labels else "Node")
+                        nid, nname, nsub = self._extract_entity_info(n_props, n_label)
+
+                        if nid not in nodes_dict:
+                            nodes_dict[nid] = ExplorerGraphNode(
+                                id=nid,
+                                label=n_label,
+                                name=nname,
+                                subtitle=nsub,
+                                properties=n_props,
+                            )
+
+                        rtype = rec["rel_type"]
+                        is_out = rec["is_outgoing"]
+                        src_id = cid if is_out else nid
+                        tgt_id = nid if is_out else cid
+                        edge_key = (src_id, tgt_id, rtype)
+
+                        if edge_key not in seen_edges:
+                            seen_edges.add(edge_key)
+                            edges_list.append(
+                                ExplorerGraphEdge(
+                                    id=f"{src_id}->{tgt_id}:{rtype}",
+                                    source=src_id,
+                                    target=tgt_id,
+                                    type=rtype,
+                                    label=rtype,
+                                )
+                            )
+            else:
+                # Global overview bounded graph
+                where_clauses = []
+                params = {"limit": limit}
+
+                if label_filter:
+                    where_clauses.append("($label_filter IN labels(a) OR $label_filter IN labels(b))")
+                    params["label_filter"] = label_filter
+
+                rel_match = f":`{rel_filter}`" if rel_filter else ""
+                filter_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+                cypher = f"""
+                MATCH (a)-[r{rel_match}]->(b)
+                {filter_sql}
+                RETURN a, labels(a) AS a_labels,
+                       r, type(r) AS rel_type,
+                       b, labels(b) AS b_labels
+                LIMIT $limit
+                """
+
+                results = session.run(cypher, **params)
+                for rec in results:
+                    a_props = dict(rec["a"])
+                    a_labels = rec["a_labels"]
+                    a_label = next((l for l in a_labels if l in self.ALLOWED_LABELS), a_labels[0] if a_labels else "Node")
+                    aid, aname, asub = self._extract_entity_info(a_props, a_label)
+
+                    b_props = dict(rec["b"])
+                    b_labels = rec["b_labels"]
+                    b_label = next((l for l in b_labels if l in self.ALLOWED_LABELS), b_labels[0] if b_labels else "Node")
+                    bid, bname, bsub = self._extract_entity_info(b_props, b_label)
+
+                    if aid not in nodes_dict:
+                        nodes_dict[aid] = ExplorerGraphNode(
+                            id=aid, label=a_label, name=aname, subtitle=asub, properties=a_props
+                        )
+                    if bid not in nodes_dict:
+                        nodes_dict[bid] = ExplorerGraphNode(
+                            id=bid, label=b_label, name=bname, subtitle=bsub, properties=b_props
+                        )
+
+                    rtype = rec["rel_type"]
+                    edge_key = (aid, bid, rtype)
+                    if edge_key not in seen_edges:
+                        seen_edges.add(edge_key)
+                        edges_list.append(
+                            ExplorerGraphEdge(
+                                id=f"{aid}->{bid}:{rtype}",
+                                source=aid,
+                                target=bid,
+                                type=rtype,
+                                label=rtype,
+                            )
+                        )
+
+                # If isolated nodes exist and graph is empty or small, include sample nodes
+                if len(nodes_dict) < 5 and not rel_filter:
+                    if label_filter:
+                        isolated_cypher = f"""
+                        MATCH (n:`{label_filter}`)
+                        RETURN n, labels(n) AS lbls
+                        LIMIT 20
+                        """
+                    else:
+                        isolated_cypher = """
+                        MATCH (n)
+                        RETURN n, labels(n) AS lbls
+                        LIMIT 20
+                        """
+                    for rec in session.run(isolated_cypher):
+                        props = dict(rec["n"])
+                        lbls = rec["lbls"]
+                        lbl = next((l for l in lbls if l in self.ALLOWED_LABELS), lbls[0] if lbls else "Node")
+                        nid, nname, nsub = self._extract_entity_info(props, lbl)
+                        if nid and nid not in nodes_dict:
+                            nodes_dict[nid] = ExplorerGraphNode(
+                                id=nid, label=lbl, name=nname, subtitle=nsub, properties=props
+                            )
+
+        return ExplorerGraphResponse(
+            nodes=list(nodes_dict.values()),
+            edges=edges_list,
+            total_nodes=len(nodes_dict),
+            total_edges=len(edges_list),
+            truncated=len(edges_list) >= limit,
+        )

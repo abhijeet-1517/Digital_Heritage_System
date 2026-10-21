@@ -196,3 +196,62 @@ class DashboardStats(BaseModel):
     total_archives: int
     current_exhibitions: int
     assets_needing_attention: int
+
+
+# =============================================================================
+# Database Explorer Models
+# =============================================================================
+class ExplorerEntitySummary(BaseModel):
+    id: str = Field(..., description="Primary identifier of entity")
+    label: str = Field(..., description="Neo4j node label (e.g. HeritageAsset, ConservationProject)")
+    name: str = Field(default="", description="Display name or title of entity")
+    subtitle: str = Field(default="", description="Useful secondary info (e.g. location, period, status, amount)")
+    properties: dict = Field(default_factory=dict, description="Concise property key-values")
+
+
+class ExplorerInventoryResponse(BaseModel):
+    total: int = Field(..., description="Total count of matching entities")
+    page: int = Field(..., description="Current page number (1-based)")
+    page_size: int = Field(..., description="Page size limit")
+    total_pages: int = Field(..., description="Total available pages")
+    items: List[ExplorerEntitySummary] = Field(default_factory=list, description="Page of entities")
+
+
+class ExplorerRelationshipItem(BaseModel):
+    rel_type: str = Field(..., description="Neo4j relationship type (e.g. MANAGES, CONSERVES)")
+    direction: str = Field(..., description="'outgoing' (source -> target) or 'incoming' (source <- target)")
+    target_id: str = Field(..., description="Neighbor entity ID")
+    target_label: str = Field(..., description="Neighbor entity Neo4j label")
+    target_name: str = Field(default="", description="Neighbor entity name or title")
+
+
+class ExplorerEntityDetail(BaseModel):
+    id: str = Field(..., description="Entity ID")
+    label: str = Field(..., description="Neo4j label")
+    properties: dict = Field(default_factory=dict, description="All actual properties stored on the node")
+    relationships: List[ExplorerRelationshipItem] = Field(default_factory=list, description="Connected relationships")
+    management_url: Optional[str] = Field(default=None, description="Frontend management URL if applicable")
+
+
+class ExplorerGraphNode(BaseModel):
+    id: str = Field(..., description="Unique node ID in graph")
+    label: str = Field(..., description="Neo4j node label")
+    name: str = Field(default="", description="Node display name or title")
+    subtitle: str = Field(default="", description="Concise subtitle")
+    properties: dict = Field(default_factory=dict, description="Node properties")
+
+
+class ExplorerGraphEdge(BaseModel):
+    id: str = Field(..., description="Edge identifier")
+    source: str = Field(..., description="Source node ID")
+    target: str = Field(..., description="Target node ID")
+    type: str = Field(..., description="Neo4j relationship type")
+    label: str = Field(default="", description="Display label for the edge")
+
+
+class ExplorerGraphResponse(BaseModel):
+    nodes: List[ExplorerGraphNode] = Field(default_factory=list)
+    edges: List[ExplorerGraphEdge] = Field(default_factory=list)
+    total_nodes: int = 0
+    total_edges: int = 0
+    truncated: bool = False

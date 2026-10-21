@@ -24,6 +24,9 @@ from backend.models import (
     FeedbackResponse,
     ExhibitionRatingSummary,
     DashboardStats,
+    ExplorerInventoryResponse,
+    ExplorerEntityDetail,
+    ExplorerGraphResponse,
 )
 from backend.store import InMemoryHeritageStore, store as in_memory_store
 from backend.neo4j_store import Neo4jHeritageStore
@@ -372,6 +375,84 @@ def delete_exhibition_record(exhibition_id: str, store=Depends(get_store)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
+# -----------------------------------------------------------------------------
+# Database Explorer Endpoints (Strictly Read-Only)
+# -----------------------------------------------------------------------------
+@app.get(
+    "/api/explorer/entities",
+    response_model=ExplorerInventoryResponse,
+    tags=["Database Explorer"],
+)
+def list_explorer_entities(
+    label: Optional[str] = Query(None, description="Filter by Neo4j node label"),
+    search: Optional[str] = Query(None, description="Search term across identifiers and common properties"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    store=Depends(get_store),
+):
+    """Retrieve paginated entity inventory from Neo4j graph database."""
+    try:
+        return store.get_explorer_entities(
+            label=label,
+            search=search,
+            page=page,
+            page_size=page_size,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to query database entities: {e}")
+
+
+@app.get(
+    "/api/explorer/entities/{label}/{entity_id}",
+    response_model=ExplorerEntityDetail,
+    tags=["Database Explorer"],
+)
+def get_explorer_entity_detail(
+    label: str,
+    entity_id: str,
+    store=Depends(get_store),
+):
+    """Inspect full properties and connected relationships for a single database entity."""
+    try:
+        return store.get_explorer_entity_detail(label=label, entity_id=entity_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except KeyError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to fetch entity details: {e}")
+
+
+@app.get(
+    "/api/explorer/graph",
+    response_model=ExplorerGraphResponse,
+    tags=["Database Explorer"],
+)
+def get_explorer_graph_data(
+    focus_label: Optional[str] = Query(None, description="Focus node label for neighborhood expansion"),
+    focus_id: Optional[str] = Query(None, description="Focus node ID for neighborhood expansion"),
+    label_filter: Optional[str] = Query(None, description="Filter nodes by label"),
+    rel_filter: Optional[str] = Query(None, description="Filter relationships by type"),
+    limit: int = Query(40, ge=1, le=100, description="Maximum number of relationships to return"),
+    store=Depends(get_store),
+):
+    """Fetch bounded graph structure containing actual nodes, relationships, and directions."""
+    try:
+        return store.get_explorer_graph(
+            focus_label=focus_label,
+            focus_id=focus_id,
+            label_filter=label_filter,
+            rel_filter=rel_filter,
+            limit=limit,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to load graph data: {e}")
+
+
 
 # -----------------------------------------------------------------------------
 # Frontend Static Files & Page Routes (Registered AFTER all /api routes)
@@ -403,6 +484,10 @@ if os.path.exists(frontend_path):
     @app.get("/exhibitions", include_in_schema=False)
     def serve_exhibitions_shortcut():
         return FileResponse(os.path.join(frontend_path, "exhibitions.html"))
+
+    @app.get("/explorer", include_in_schema=False)
+    def serve_explorer_shortcut():
+        return FileResponse(os.path.join(frontend_path, "explorer.html"))
 
     # Mount static assets (CSS, JS, images, and HTML files) at /
     app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")

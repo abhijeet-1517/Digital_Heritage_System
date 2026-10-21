@@ -249,3 +249,124 @@ def test_api_delete_exhibition(client):
     assert "deleted successfully" in data["message"]
     assert data["exhibition"]["exhibition_id"] == "ex001"
 
+
+# -----------------------------------------------------------------------------
+# Database Explorer API Tests
+# -----------------------------------------------------------------------------
+def test_api_explorer_entities_inventory(client, mock_neo4j_store):
+    from backend.models import ExplorerInventoryResponse, ExplorerEntitySummary
+
+    mock_neo4j_store.get_explorer_entities.return_value = ExplorerInventoryResponse(
+        total=1,
+        page=1,
+        page_size=20,
+        total_pages=1,
+        items=[
+            ExplorerEntitySummary(
+                id="h001",
+                label="HeritageAsset",
+                name="Brihadisvara Temple",
+                subtitle="Thanjavur • Maintained",
+                properties={"asset_id": "h001", "name": "Brihadisvara Temple"},
+            )
+        ],
+    )
+
+    res = client.get("/api/explorer/entities?label=HeritageAsset&page=1&page_size=20")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 1
+    assert data["page"] == 1
+    assert len(data["items"]) == 1
+    assert data["items"][0]["id"] == "h001"
+    assert data["items"][0]["label"] == "HeritageAsset"
+
+
+def test_api_explorer_entity_detail_success(client, mock_neo4j_store):
+    from backend.models import ExplorerEntityDetail, ExplorerRelationshipItem
+
+    mock_neo4j_store.get_explorer_entity_detail.return_value = ExplorerEntityDetail(
+        id="h001",
+        label="HeritageAsset",
+        properties={"asset_id": "h001", "name": "Brihadisvara Temple"},
+        relationships=[
+            ExplorerRelationshipItem(
+                rel_type="FEATURED_IN",
+                direction="outgoing",
+                target_id="ex001",
+                target_label="Exhibition",
+                target_name="Indian Heritage Exhibition",
+            )
+        ],
+        management_url="/assets.html",
+    )
+
+    res = client.get("/api/explorer/entities/HeritageAsset/h001")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["id"] == "h001"
+    assert data["label"] == "HeritageAsset"
+    assert len(data["relationships"]) == 1
+    assert data["relationships"][0]["rel_type"] == "FEATURED_IN"
+    assert data["relationships"][0]["direction"] == "outgoing"
+    assert data["management_url"] == "/assets.html"
+
+
+def test_api_explorer_entity_detail_not_found(client, mock_neo4j_store):
+    mock_neo4j_store.get_explorer_entity_detail.side_effect = KeyError("Entity 'nonexistent' not found.")
+
+    res = client.get("/api/explorer/entities/HeritageAsset/nonexistent")
+    assert res.status_code == 404
+    data = res.json()
+    assert "not found" in data["detail"]
+
+
+def test_api_explorer_graph_data(client, mock_neo4j_store):
+    from backend.models import ExplorerGraphResponse, ExplorerGraphNode, ExplorerGraphEdge
+
+    mock_neo4j_store.get_explorer_graph.return_value = ExplorerGraphResponse(
+        nodes=[
+            ExplorerGraphNode(
+                id="h001",
+                label="HeritageAsset",
+                name="Brihadisvara Temple",
+                subtitle="Thanjavur",
+            ),
+            ExplorerGraphNode(
+                id="ex001",
+                label="Exhibition",
+                name="Indian Heritage Exhibition",
+                subtitle="Current",
+            ),
+        ],
+        edges=[
+            ExplorerGraphEdge(
+                id="h001->ex001:FEATURED_IN",
+                source="h001",
+                target="ex001",
+                type="FEATURED_IN",
+                label="FEATURED_IN",
+            )
+        ],
+        total_nodes=2,
+        total_edges=1,
+        truncated=False,
+    )
+
+    res = client.get("/api/explorer/graph?limit=50")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total_nodes"] == 2
+    assert data["total_edges"] == 1
+    assert data["edges"][0]["type"] == "FEATURED_IN"
+    assert data["edges"][0]["source"] == "h001"
+    assert data["edges"][0]["target"] == "ex001"
+
+
+def test_api_explorer_invalid_label_rejected(client, mock_neo4j_store):
+    mock_neo4j_store.get_explorer_entities.side_effect = ValueError("Invalid entity label 'MaliciousLabel'")
+
+    res = client.get("/api/explorer/entities?label=MaliciousLabel")
+    assert res.status_code == 400
+    assert "Invalid entity label" in res.json()["detail"]
+

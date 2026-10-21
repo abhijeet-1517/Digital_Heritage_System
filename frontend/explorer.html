@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HeritageGraph | Database Explorer</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js" defer></script>
+</head>
+<body>
+    <header>
+        <h1>Database Explorer</h1>
+        <p>Inspect Neo4j HeritageGraph entities, relationships, and live database state.</p>
+    </header>
+
+    <nav aria-label="Main navigation">
+        <a href="/index.html">Dashboard</a>
+        <a href="/assets.html">Assets</a>
+        <a href="/conservation.html">Conservation</a>
+        <a href="/funding.html">Funding</a>
+        <a href="/archives.html">Archives</a>
+        <a href="/exhibitions.html">Exhibitions</a>
+        <a href="/explorer.html" aria-current="page">Database Explorer</a>
+    </nav>
+
+    <main>
+        <div id="explorer-message" class="message info" role="status" aria-live="polite">
+            Exploring live database state. Note: Explorer automatically polls every 30 seconds for background changes.
+        </div>
+
+        <section class="card">
+            <div class="view-tabs" role="tablist">
+                <button type="button" class="view-tab-btn active" id="tab-btn-table" role="tab" aria-selected="true" aria-controls="explorer-table-view">
+                    Entity Inventory Table
+                </button>
+                <button type="button" class="view-tab-btn" id="tab-btn-graph" role="tab" aria-selected="false" aria-controls="explorer-graph-view">
+                    Interactive Relationship Graph
+                </button>
+                <div style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
+                    <span id="sync-status" class="status" style="font-size: 0.8rem;">Ready</span>
+                    <button type="button" id="explorer-refresh-btn" style="padding: 6px 12px; font-size: 0.85rem;">
+                        Refresh Explorer
+                    </button>
+                </div>
+            </div>
+
+            <!-- Filter Controls -->
+            <div class="filter-bar">
+                <div>
+                    <label for="explorer-label-filter">Entity Type (Label)</label>
+                    <select id="explorer-label-filter">
+                        <option value="">All Entity Types</option>
+                        <option value="HeritageAsset">Heritage Assets (:HeritageAsset)</option>
+                        <option value="ConservationProject">Conservation Projects (:ConservationProject)</option>
+                        <option value="Funding">Funding Records (:Funding)</option>
+                        <option value="DigitalArchive">Digital Archives (:DigitalArchive)</option>
+                        <option value="Exhibition">Exhibitions (:Exhibition)</option>
+                        <option value="VisitorFeedback">Visitor Feedback (:VisitorFeedback)</option>
+                        <option value="Organization">Organizations (:Organization)</option>
+                        <option value="Researcher">Researchers (:Researcher)</option>
+                        <option value="PreservationReport">Preservation Reports (:PreservationReport)</option>
+                    </select>
+                </div>
+
+                <div id="graph-rel-filter-container" style="display: none;">
+                    <label for="explorer-rel-filter">Relationship Type</label>
+                    <select id="explorer-rel-filter">
+                        <option value="">All Relationships</option>
+                        <option value="FEATURED_IN">FEATURED_IN (Asset → Exhibition)</option>
+                        <option value="CONSERVES">CONSERVES (Project → Asset)</option>
+                        <option value="ALLOCATED_TO">ALLOCATED_TO (Funding → Project)</option>
+                        <option value="DOCUMENTED_IN">DOCUMENTED_IN (Asset → Archive)</option>
+                        <option value="GIVEN_FOR">GIVEN_FOR (Feedback → Exhibition)</option>
+                        <option value="MANAGES">MANAGES (Org → Asset / Project)</option>
+                        <option value="ACCESSES">ACCESSES (Researcher → Archive)</option>
+                        <option value="REPORTS_ON">REPORTS_ON (Report → Asset)</option>
+                    </select>
+                </div>
+
+                <div id="table-search-container">
+                    <label for="explorer-search-input">Search Entities</label>
+                    <input type="text" id="explorer-search-input" placeholder="Search by name, ID, location, or status...">
+                </div>
+
+                <div style="flex: 0 0 auto; display: flex; align-items: flex-end; gap: 8px;">
+                    <button type="button" id="explorer-filter-btn" style="height: 42px;">Apply</button>
+                    <button type="button" id="explorer-clear-btn" style="height: 42px; background: var(--muted);">Reset</button>
+                </div>
+            </div>
+
+            <!-- View 1: Entity Inventory Table -->
+            <div id="explorer-table-view" role="tabpanel">
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Identifier</th>
+                                <th>Display Name / Title</th>
+                                <th>Details / Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="explorer-table-body">
+                            <tr>
+                                <td colspan="5">Loading entities...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                <div class="pagination-controls">
+                    <div id="explorer-pagination-info" class="status">Page 1 of 1</div>
+                    <div class="button-group">
+                        <button type="button" id="explorer-prev-page" disabled>Previous</button>
+                        <button type="button" id="explorer-next-page" disabled>Next</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View 2: Interactive Relationship Graph -->
+            <div id="explorer-graph-view" role="tabpanel" style="display: none;">
+                <div class="graph-legend">
+                    <span class="graph-legend-item"><span class="legend-color-dot" style="background: #0284c7;"></span> HeritageAsset</span>
+                    <span class="graph-legend-item"><span class="legend-color-dot" style="background: #d97706;"></span> ConservationProject</span>
+                    <span class="graph-legend-item"><span class="legend-color-dot" style="background: #16a34a;"></span> Funding</span>
+                    <span class="graph-legend-item"><span class="legend-color-dot" style="background: #9333ea;"></span> DigitalArchive</span>
+                    <span class="graph-legend-item"><span class="legend-color-dot" style="background: #ea580c;"></span> Exhibition</span>
+                    <span class="graph-legend-item"><span class="legend-color-dot" style="background: #db2777;"></span> VisitorFeedback</span>
+                    <span class="graph-legend-item"><span class="legend-color-dot" style="background: #475569;"></span> Organization / Other</span>
+                </div>
+
+                <div class="graph-toolbar">
+                    <div class="button-group">
+                        <button type="button" id="graph-zoom-in" title="Zoom In (+)">+</button>
+                        <button type="button" id="graph-zoom-out" title="Zoom Out (-)">−</button>
+                        <button type="button" id="graph-zoom-reset" title="Reset View (100%)">Reset View</button>
+                        <button type="button" id="graph-fit-view" title="Fit to Screen">Fit Graph</button>
+                    </div>
+                    <span id="graph-zoom-level" class="status" style="font-size: 0.8rem; padding: 4px 8px;">100%</span>
+                    <span style="font-size: 0.8rem; color: var(--muted); margin-left: auto;">
+                        Scroll to zoom • Drag background to pan • Drag node to move
+                    </span>
+                </div>
+
+                <div class="graph-container" id="graph-viewport">
+                    <svg id="explorer-graph-svg" width="100%" height="100%" style="display: block; cursor: grab;">
+                        <defs>
+                            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                                <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+                            </marker>
+                            <marker id="arrowhead-active" markerWidth="11" markerHeight="8" refX="10" refY="4" orient="auto">
+                                <polygon points="0 0, 11 4, 0 8" fill="#173b35" />
+                            </marker>
+                            <marker id="arrowhead-highlight" markerWidth="11" markerHeight="8" refX="10" refY="4" orient="auto">
+                                <polygon points="0 0, 11 4, 0 8" fill="#0284c7" />
+                            </marker>
+                        </defs>
+                        <g id="graph-content-group">
+                            <g id="graph-edges-layer"></g>
+                            <g id="graph-edge-labels-layer"></g>
+                            <g id="graph-nodes-layer"></g>
+                        </g>
+                    </svg>
+                    <div id="graph-tooltip" class="graph-tooltip" style="display: none;"></div>
+                </div>
+                <p style="margin-top: 8px; font-size: 0.85rem; color: var(--muted);">
+                    Tip: Click any node to inspect properties and connected relationships below. Click "Expand in Graph" to focus on immediate neighbors. Hover over edges or nodes to reveal relationship details.
+                </p>
+            </div>
+        </section>
+
+        <!-- Entity Property & Relationship Inspector -->
+        <section class="card inspector-card" id="entity-inspector-card" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <div>
+                    <h2 id="inspector-title" style="margin: 0 0 4px;">Entity Inspector</h2>
+                    <span id="inspector-badge" class="entity-badge">Type</span>
+                    <span id="inspector-id" style="font-weight: bold; margin-left: 8px;">ID</span>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" id="inspector-expand-graph-btn" style="padding: 6px 14px; font-size: 0.85rem;">
+                        Expand in Graph
+                    </button>
+                    <a id="inspector-mgmt-link" href="#" class="button" style="padding: 6px 14px; font-size: 0.85rem; text-decoration: none; display: inline-block;">
+                        Open Management Page
+                    </a>
+                </div>
+            </div>
+
+            <h3 style="margin-top: 20px; font-size: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 6px;">
+                Actual Node Properties
+            </h3>
+            <div id="inspector-properties" class="property-list">
+                <!-- Injected via JavaScript -->
+            </div>
+
+            <h3 style="margin-top: 24px; font-size: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 6px;">
+                Connected Relationships (<span id="inspector-rel-count">0</span>)
+            </h3>
+            <div id="inspector-relationships" class="relationship-list">
+                <!-- Injected via JavaScript -->
+            </div>
+        </section>
+    </main>
+</body>
+</html>

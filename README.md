@@ -52,7 +52,6 @@ A comprehensive Cultural Heritage Management and Preservation Information System
 Ensure Python 3.10+ is installed:
 ```powershell
 # Navigate to project directory
-cd c:\Users\abhij\Documents\digital_heritage_system\Digital_Heritage_System
 
 # Create virtual environment (if not already created)
 python -m venv .venv

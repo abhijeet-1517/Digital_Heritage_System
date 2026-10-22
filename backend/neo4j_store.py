@@ -567,7 +567,7 @@ class Neo4jHeritageStore:
     # -------------------------------------------------------------------------
     def _map_archive_node(self, node: dict, target_asset_id: Optional[str] = None) -> ArchiveResponse:
         title = node.get("title") or node.get("description") or "Digital Archive Document"
-        asset_id = node.get("asset_id") or target_asset_id or ""
+        asset_id = node.get("asset_id") or target_asset_id or "N/A"
         file_ref = node.get("file_reference") or node.get("type") or "Document Reference"
         access = node.get("access_level") or "Public"
         return ArchiveResponse(
@@ -582,11 +582,18 @@ class Neo4jHeritageStore:
         cypher = """
         MATCH (d:DigitalArchive)
         OPTIONAL MATCH (a:HeritageAsset)-[:DOCUMENTED_IN]->(d)
+        WITH d, collect(DISTINCT a.asset_id) AS asset_ids
         WHERE $search_term IS NULL OR $search_term = ''
            OR toLower(coalesce(d.title, d.description, '')) CONTAINS toLower($search_term)
            OR toLower(d.archive_id) CONTAINS toLower($search_term)
-           OR toLower(coalesce(a.asset_id, '')) CONTAINS toLower($search_term)
-        RETURN d, a.asset_id AS target_asset_id
+           OR toLower(coalesce(d.asset_id, '')) CONTAINS toLower($search_term)
+           OR any(aid IN asset_ids WHERE toLower(aid) CONTAINS toLower($search_term))
+        RETURN d,
+               CASE
+                   WHEN size(asset_ids) > 0 THEN asset_ids[0]
+                   WHEN d.asset_id IS NOT NULL AND d.asset_id <> '' THEN d.asset_id
+                   ELSE 'N/A'
+               END AS target_asset_id
         ORDER BY d.archive_id ASC
         """
         with self._get_session() as session:

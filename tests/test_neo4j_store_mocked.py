@@ -490,3 +490,83 @@ def test_neo4j_store_explorer_graph_label_filter_query(mock_driver):
     assert "'$label_filter'" not in cypher_executed
     assert call_kwargs.get("label_filter") == "HeritageAsset"
 
+
+def test_neo4j_store_get_archives_deduplication_and_search_filter(mock_driver):
+    """
+    Regression test:
+    - da001 is linked to multiple assets (h001..h010) without a direct node asset_id.
+    - da002 is registered with asset_id h301 and a direct DOCUMENTED_IN link.
+    - da003 is an orphaned archive with no asset_id property and no linked assets.
+    Verifies that:
+    1. Query aggregates asset_ids and deduplicates rows (collect(DISTINCT)).
+    2. Missing asset IDs fallback safely to 'N/A' without triggering Pydantic ValidationError.
+    3. All fields are non-empty and valid.
+    """
+    driver, session = mock_driver
+
+    da001_node = {
+        "archive_id": "da001",
+        "description": "Digital documentation of heritage asset",
+        "type": "3D Scan",
+    }
+    da002_node = {
+        "archive_id": "da002",
+        "title": "3D Laser Scanning and Photogrammetry Dataset",
+        "description": "3D Laser Scanning and Photogrammetry Dataset",
+        "asset_id": "h301",
+        "file_reference": "/archives/2026/gujarat/h301_3d_model.obj",
+        "type": "/archives/2026/gujarat/h301_3d_model.obj",
+        "access_level": "Restricted",
+    }
+    da003_node = {
+        "archive_id": "da003",
+        "title": "Unlinked Historic Manuscript",
+    }
+
+    # Simulate get_archives() returning 1 record per DigitalArchive node
+    cypher_results = [
+        {"d": da001_node, "target_asset_id": "h001"},
+        {"d": da002_node, "target_asset_id": "h301"},
+        {"d": da003_node, "target_asset_id": "N/A"},
+    ]
+    session.run.return_value = DummyResult(cypher_results)
+
+    store = Neo4jHeritageStore(driver=driver)
+    archives = store.get_archives(query=None)
+
+    assert len(archives) == 3
+    # Check deduplication & IDs
+    assert [a.archive_id for a in archives] == ["da001", "da002", "da003"]
+
+    # Verify da001 mapped correctly with first linked asset
+    assert archives[0].archive_id == "da001"
+    assert archives[0].asset_id == "h001"
+    assert archives[0].title == "Digital documentation of heritage asset"
+    assert archives[0].file_reference == "3D Scan"
+    assert archives[0].access_level == "Public"
+
+    # Verify da002 mapped correctly with explicit asset_id
+    assert archives[1].archive_id == "da002"
+    assert archives[1].asset_id == "h301"
+    assert archives[1].title == "3D Laser Scanning and Photogrammetry Dataset"
+    assert archives[1].file_reference == "/archives/2026/gujarat/h301_3d_model.obj"
+    assert archives[1].access_level == "Restricted"
+
+    # Verify da003 fallback to 'N/A' when no asset exists
+    assert archives[2].archive_id == "da003"
+    assert archives[2].asset_id == "N/A"
+    assert archives[2].title == "Unlinked Historic Manuscript"
+
+    # Verify all fields are non-empty strings
+    for a in archives:
+        assert len(a.archive_id) > 0
+        assert len(a.title) > 0
+        assert len(a.asset_id) > 0
+        assert len(a.file_reference) > 0
+        assert len(a.access_level) > 0
+
+    # Verify Cypher query uses aggregation pattern
+    called_query = session.run.call_args[0][0]
+    assert "collect(DISTINCT" in called_query
+    assert "asset_ids" in called_query
+    assert "any(aid IN asset_ids" in called_query

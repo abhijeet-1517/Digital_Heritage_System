@@ -4,6 +4,39 @@ A comprehensive Cultural Heritage Management and Preservation Information System
 
 ---
 
+## 🌐 Live Demo
+
+- **Website**: [https://digital-heritage-system.onrender.com](https://digital-heritage-system.onrender.com/)
+- **API Health Check**: [https://digital-heritage-system.onrender.com/api/health](https://digital-heritage-system.onrender.com/api/health)
+- **Interactive API Documentation**: [https://digital-heritage-system.onrender.com/docs](https://digital-heritage-system.onrender.com/docs)
+
+> **Note:** The hosted application is deployed on Render's free tier and may spin down during periods of inactivity. Please allow 30–60 seconds for the service to wake up on the first request.
+
+---
+
+## ✨ Key Features
+
+- **Heritage asset management**: Register, search, update preservation statuses, and track historical assets.
+- **Conservation project tracking and history**: Manage restoration projects, lifecycle statuses, and asset intervention histories.
+- **Funding allocation and utilization analytics**: Real-time budget allocation, expenditure monitoring, remaining balance calculations, and utilization percentages.
+- **Digital archives**: Document 3D scans, archival records, metadata, and access permissions linked to heritage assets.
+- **Exhibition management and visitor feedback**: Schedule public exhibitions and collect structured visitor ratings and reviews.
+- **Interactive dashboard**: High-level system overview with real-time asset counts, active projects, and critical attention alerts.
+- **Neo4j graph database and relationship management**: Rich graph-native property modeling and dependency tracking (CONSERVES, ALLOCATED_TO, DOCUMENTED_IN, FEATURED_IN).
+
+---
+
+## 🛠️ Technology Stack
+
+- **Backend**: Python, FastAPI, Pydantic
+- **Frontend**: HTML5, CSS3, Vanilla JavaScript
+- **Database**: Neo4j Aura
+- **Driver**: Official Neo4j Python driver
+- **Server**: Uvicorn
+- **Hosting**: Render
+
+---
+
 ## 🏛️ System Architecture
 
 - **Backend**: FastAPI with async lifespan management and Pydantic v2 schemas.
